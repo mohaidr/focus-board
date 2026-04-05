@@ -81,6 +81,13 @@ function createTables() {
     // Migrate: completed=1 → status=2
     db.run('UPDATE items SET status = 2 WHERE completed = 1');
   }
+
+  // Migration: add completed_at column for auto-delete feature
+  try {
+    db.exec('SELECT completed_at FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN completed_at TEXT DEFAULT NULL');
+  }
 }
 
 // ── Seed Data ──
@@ -119,6 +126,23 @@ function resetRecurringTasks() {
   localStorage.setItem('Dashora_last_reset', today);
 }
 
+function autoDeleteCompletedTasks() {
+  const enabled = localStorage.getItem('dashora_autodelete_enabled');
+  if (enabled !== 'true') return;
+
+  const days = parseInt(localStorage.getItem('dashora_autodelete_days') || '7', 10);
+  if (isNaN(days) || days < 1) return;
+
+  // Delete done items whose completed_at is older than the threshold
+  db.run(
+    `DELETE FROM items
+     WHERE status = 2
+       AND completed_at IS NOT NULL
+       AND datetime(completed_at) <= datetime('now', '-' || ? || ' days')`,
+    [days]
+  );
+}
+
 // ── Database Init (called from app.js) ──
 
 async function initDB() {
@@ -139,6 +163,9 @@ async function initDB() {
 
   // Reset recurring tasks at the start of each new day
   resetRecurringTasks();
+
+  // Auto-delete old completed tasks if enabled
+  autoDeleteCompletedTasks();
 
   persist();
 

@@ -274,11 +274,17 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
-        ${statusBtns}
-        <div class="item-detail-actions">
-          <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
-          ${recurBtn}
-          <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
+        <div class="item-detail-toolbar">
+          <div class="item-status-btns">
+            <button class="btn btn-ghost btn-sm ${st === 0 ? 'btn-status-active' : ''}" onclick="setStatus(event, ${iid}, 0)">\ud83d\udccb To Do</button>
+            <button class="btn btn-ghost btn-sm ${st === 1 ? 'btn-status-active btn-status-ip' : ''}" onclick="setStatus(event, ${iid}, 1)">\u23f3 In Progress</button>
+            <button class="btn btn-ghost btn-sm ${st === 2 ? 'btn-status-active btn-status-done' : ''}" onclick="setStatus(event, ${iid}, 2)">\u2705 Done</button>
+          </div>
+          <div class="item-detail-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
+            ${recurBtn}
+            <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
+          </div>
         </div>
       </div>`;
   }
@@ -511,7 +517,8 @@ function toggleComplete(event, id) {
   // Cycle: 0 (todo) → 1 (in-progress) → 2 (done) → 0
   const next = (cur + 1) % 3;
   const completed = next === 2 ? 1 : 0;
-  db.run('UPDATE items SET status = ?, completed = ? WHERE id = ?', [next, completed, id]);
+  const completedAt = next === 2 ? new Date().toISOString() : null;
+  db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [next, completed, completedAt, id]);
   persist();
 
   const labels = ['To Do', 'In Progress', 'Done'];
@@ -532,7 +539,8 @@ function toggleComplete(event, id) {
 function setStatus(event, id, status) {
   event.stopPropagation();
   const completed = status === 2 ? 1 : 0;
-  db.run('UPDATE items SET status = ?, completed = ? WHERE id = ?', [status, completed, id]);
+  const completedAt = status === 2 ? new Date().toISOString() : null;
+  db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [status, completed, completedAt, id]);
   persist();
   renderMain();
   renderSidebar();
@@ -784,6 +792,38 @@ function importData(event) {
   };
   reader.readAsText(file);
   event.target.value = '';
+}
+
+
+/* ================================================================
+   Settings
+   ================================================================ */
+
+function openSettingsModal() {
+  const enabled = localStorage.getItem('dashora_autodelete_enabled') === 'true';
+  const days = localStorage.getItem('dashora_autodelete_days') || '7';
+
+  document.getElementById('autoDeleteEnabled').checked = enabled;
+  document.getElementById('autoDeleteDays').value = days;
+  document.getElementById('autoDeleteDelayGroup').style.display = enabled ? '' : 'none';
+
+  // Toggle visibility when checkbox changes
+  document.getElementById('autoDeleteEnabled').onchange = function () {
+    document.getElementById('autoDeleteDelayGroup').style.display = this.checked ? '' : 'none';
+  };
+
+  document.getElementById('settingsModal').classList.add('active');
+}
+
+function saveSettings() {
+  const enabled = document.getElementById('autoDeleteEnabled').checked;
+  const days = document.getElementById('autoDeleteDays').value;
+
+  localStorage.setItem('dashora_autodelete_enabled', enabled ? 'true' : 'false');
+  localStorage.setItem('dashora_autodelete_days', days);
+
+  closeModal('settingsModal');
+  toast(enabled ? `Auto-delete: after ${days} day${days !== '1' ? 's' : ''}` : 'Auto-delete disabled');
 }
 
 
