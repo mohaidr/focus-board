@@ -1,5 +1,5 @@
 /* ================================================================
-   FocusBoard – Application Logic
+   Dashora – Application Logic
    Rendering, CRUD, drag-and-drop, search, export/import.
    ================================================================ */
 

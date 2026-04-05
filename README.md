@@ -1,4 +1,4 @@
-# FocusBoard – ADHD Organizer
+# Dashora – ADHD Organizer
 
 A client-side sticky-board organizer built for people with ADHD. Sections hold items with titles, descriptions, and links — all stored locally in your browser using SQLite (via [sql.js](https://github.com/sql-js/sql.js)) persisted to IndexedDB.
 
@@ -22,8 +22,8 @@ A client-side sticky-board organizer built for people with ADHD. Sections hold i
 2. Open `index.html` in your browser — that's it!
 
 ```
-git clone https://github.com/<your-username>/FocusBoard.git
-cd FocusBoard
+git clone https://github.com/<your-username>/Dashora.git
+cd Dashora
 start index.html
 ```
 
@@ -32,7 +32,7 @@ No build step, no dependencies to install. Everything runs in the browser.
 ## Project Structure
 
 ```
-FocusBoard/
+Dashora/
 ├── index.html          # HTML shell
 ├── css/
 │   └── style.css       # All styles

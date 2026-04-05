@@ -1,5 +1,5 @@
 /* ================================================================
-   FocusBoard – Database Layer
+   Dashora – Database Layer
    Handles SQLite init, IndexedDB persistence, and seed data.
    ================================================================ */
 
@@ -86,9 +86,6 @@ function createTables() {
 // ── Seed Data ──
 
 function seedData() {
-  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('To Do', '#55aadd', 0)");
-  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('In Progress', '#e0a055', 1)");
-  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('Done', '#44cc88', 2)");
 }
 
 // ── Migrations ──
@@ -112,14 +109,14 @@ function migrateTasksFirst() {
 
 function resetRecurringTasks() {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const lastReset = localStorage.getItem('focusboard_last_reset');
+  const lastReset = localStorage.getItem('Dashora_last_reset');
 
   if (lastReset === today) return; // Already reset today
 
   // Un-complete all recurring tasks
   db.run('UPDATE items SET completed = 0, status = 0 WHERE recurring = 1 AND completed = 1');
 
-  localStorage.setItem('focusboard_last_reset', today);
+  localStorage.setItem('Dashora_last_reset', today);
 }
 
 // ── Database Init (called from app.js) ──
