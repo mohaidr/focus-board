@@ -751,12 +751,24 @@ function importData(event) {
       db.run('DELETE FROM sections');
 
       if (data.sections.length && data.sections[0].values) {
+        const cols = data.sections[0].columns
+          ? data.sections[0].columns.join(', ')
+          : 'id, name, color, sort_order, created_at';
+        const ph = data.sections[0].columns
+          ? data.sections[0].columns.map(() => '?').join(', ')
+          : '?, ?, ?, ?, ?';
         for (const row of data.sections[0].values)
-          db.run('INSERT INTO sections (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)', row);
+          db.run(`INSERT INTO sections (${cols}) VALUES (${ph})`, row);
       }
       if (data.items.length && data.items[0].values) {
+        const cols = data.items[0].columns
+          ? data.items[0].columns.join(', ')
+          : 'id, section_id, title, description, link, completed, sort_order, created_at';
+        const ph = data.items[0].columns
+          ? data.items[0].columns.map(() => '?').join(', ')
+          : '?, ?, ?, ?, ?, ?, ?, ?';
         for (const row of data.items[0].values)
-          db.run('INSERT INTO items (id, section_id, title, description, link, completed, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', row);
+          db.run(`INSERT INTO items (${cols}) VALUES (${ph})`, row);
       }
 
       const first = db.exec('SELECT id FROM sections ORDER BY sort_order, id LIMIT 1');
