@@ -75,57 +75,9 @@ function createTables() {
 }
 
 // ── Seed Data ──
-// "Tasks for Today" is first so it's selected on first launch.
 
 function seedData() {
-  const sections = [
-    { name: 'Tasks for Today',       color: '#44cc88' },
-    { name: 'Regressions',           color: '#e05577' },
-    { name: 'By Design Limitations', color: '#e0a055' },
-    { name: 'Important Links',       color: '#55aadd' },
-    { name: 'Watch',                 color: '#d4c955' },
-    { name: 'Notes',                 color: '#7c6ff7' },
-  ];
-
-  sections.forEach((s, i) => {
-    db.run(
-      'INSERT INTO sections (name, color, sort_order) VALUES (?, ?, ?)',
-      [s.name, s.color, i]
-    );
-  });
-
-  // Section IDs match insert order: 1 = Tasks, 2 = Regressions, etc.
-  const items = [
-    // Tasks for Today  (section 1)
-    { sid: 1, title: 'Review pull requests' },
-    { sid: 1, title: 'Reply to team messages' },
-    { sid: 1, title: 'Triage incoming issues' },
-
-    // Regressions  (section 2)
-    { sid: 2, title: 'Example regression item' },
-
-    // By Design Limitations  (section 3)
-    { sid: 3, title: 'Example limitation',
-      desc: 'Describe the known limitation and any recommended workaround.' },
-
-    // Important Links  (section 4)
-    { sid: 4, title: 'Project Wiki',
-      link: 'https://example.com/wiki' },
-
-    // Watch  (section 5)
-    { sid: 5, title: 'Track issue #1234' },
-
-    // Notes  (section 6)
-    { sid: 6, title: 'Meeting notes placeholder',
-      desc: 'Add your meeting notes here.' },
-  ];
-
-  items.forEach((item, i) => {
-    db.run(
-      'INSERT INTO items (section_id, title, description, link, sort_order) VALUES (?, ?, ?, ?, ?)',
-      [item.sid, item.title, item.desc || '', item.link || '', i]
-    );
-  });
+  // No seed data – app starts with a clean slate.
 }
 
 // ── Migrations ──
