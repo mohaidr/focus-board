@@ -1,23 +1,23 @@
 /* ================================================================
-   FocusBoard – ADHD Organizer
+   FocusBoard
    Stylesheet
    ================================================================ */
 
 /* ── Variables ── */
 :root {
-  --bg: #1e1e2e;
-  --surface: #2a2a3d;
-  --surface-hover: #33334d;
-  --text: #e0e0f0;
-  --text-muted: #8888aa;
-  --accent: #7c6ff7;
-  --accent-hover: #9488ff;
-  --danger: #e05577;
-  --danger-hover: #ff6688;
-  --success: #44cc88;
-  --border: #3a3a55;
-  --card: #313148;
-  --card-hover: #3a3a58;
+  --bg: #1a1d27;
+  --surface: #222636;
+  --surface-hover: #2c3044;
+  --text: #e4e5e9;
+  --text-muted: #7b7f8a;
+  --accent: #6c8cff;
+  --accent-hover: #8da6ff;
+  --danger: #ef5a6f;
+  --danger-hover: #ff7085;
+  --success: #3ddc84;
+  --border: #323648;
+  --card: #252940;
+  --card-hover: #2e3350;
   --shadow: rgba(0, 0, 0, 0.35);
   --sidebar-w: 260px;
 }
@@ -255,13 +255,17 @@ body {
 .item {
   background: var(--card);
   border-radius: 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   margin-bottom: 6px;
   transition: all 0.15s;
   position: relative;
 }
-.item:hover { border-color: var(--border); background: var(--card-hover); }
-.item.completed .item-title-text { text-decoration: line-through; color: var(--text-muted); }
+.item:hover { background: var(--card-hover); }
+.item.status-todo  { border-left-color: var(--accent); }
+.item.status-ip    { border-left-color: #e0a055; }
+.item.status-done  { border-left-color: var(--success); }
+.item.status-done .item-title-text { text-decoration: line-through; color: var(--text-muted); }
 .item.dragging { opacity: 0.4; }
 
 .item-row {
@@ -288,7 +292,7 @@ body {
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  border: 2px solid var(--border);
+  border: 2px solid #ffffff;
   background: none;
   cursor: pointer;
   flex-shrink: 0;
@@ -300,6 +304,7 @@ body {
   font-size: 12px;
 }
 .item-checkbox:hover { border-color: var(--accent); }
+.item-checkbox.in-progress { background: #e0a055; border-color: #e0a055; color: #fff; }
 .item-checkbox.checked { background: var(--success); border-color: var(--success); color: #fff; }
 
 .item-title-text {
@@ -370,6 +375,43 @@ body {
 .item-detail-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 
+/* ── Section Search ── */
+.section-search-wrap {
+  position: relative;
+  margin-bottom: 14px;
+}
+.section-search {
+  width: 100%;
+  padding: 10px 36px 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.section-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 111, 247, 0.15);
+}
+.section-search::placeholder { color: var(--text-muted); }
+.section-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.section-search-clear:hover { color: var(--text); background: var(--surface-hover); }
+
 /* ── Add Item ── */
 .add-item-row {
   display: flex;
@@ -390,7 +432,19 @@ body {
 /* ================================================================
    Done Section
    ================================================================ */
-.done-divider {
+/* Status group headers & dividers */
+.status-group-header {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: 8px 4px 8px;
+  margin-bottom: 4px;
+}
+.status-group-header.status-todo { color: var(--accent); }
+
+.status-divider {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -398,8 +452,8 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.done-divider-line { flex: 1; height: 1px; background: var(--border); }
-.done-divider-label {
+.status-divider-line { flex: 1; height: 1px; background: var(--border); }
+.status-divider-label {
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
@@ -411,13 +465,44 @@ body {
   padding: 4px 12px;
   border-radius: 6px;
   transition: background 0.15s;
+  white-space: nowrap;
 }
-.done-divider:hover .done-divider-label { background: var(--surface-hover); }
+.status-ip-divider .status-divider-label { color: #e0a055; }
+.status-done-divider .status-divider-label { color: var(--success); }
+.status-divider:hover .status-divider-label { background: var(--surface-hover); }
+.status-divider-arrow { font-size: 10px; transition: transform 0.2s; }
+.status-divider-arrow.collapsed { transform: rotate(-90deg); }
+
+/* Keep legacy class for backward compat */
+.done-divider { display: flex; align-items: center; gap: 10px; margin: 24px 0 10px; cursor: pointer; user-select: none; }
+.done-divider-line { flex: 1; height: 1px; background: var(--border); }
+.done-divider-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; }
 .done-divider-arrow { font-size: 10px; transition: transform 0.2s; }
 .done-divider-arrow.collapsed { transform: rotate(-90deg); }
 
 .done-items .item { opacity: 0.55; }
 .done-items .item:hover { opacity: 0.85; }
+
+.ip-items .item { border-left-color: #e0a055; }
+
+/* Status buttons in expanded detail */
+.item-status-btns {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.btn-status-active {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+.btn-status-ip.btn-status-active {
+  border-color: #e0a055 !important;
+  color: #e0a055 !important;
+}
+.btn-status-done.btn-status-active {
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+}
 
 .item.completing { animation: completeAnim 0.4s ease; }
 @keyframes completeAnim {

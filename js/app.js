@@ -14,8 +14,10 @@ let activeSectionId = null;
 let expandedItems   = new Set();
 let dragItemId      = null;
 let dragSectionId   = null;
-let doneCollapsed   = false;
-let selectedColor   = COLORS[5];
+let doneCollapsed      = false;
+let inProgressCollapsed = false;
+let selectedColor      = COLORS[5];
+let sectionSearchTerm  = '';
 
 
 /* ================================================================
@@ -63,10 +65,15 @@ function renderSidebar() {
   let html = '<div class="nav-label">Sections</div>';
 
   for (const [id, name, color] of sections[0].values) {
-    const active = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND completed = 0', [id])[0].values[0][0];
-    const done   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND completed = 1', [id])[0].values[0][0];
+    const todo   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 0', [id])[0].values[0][0];
+    const inProg = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 1', [id])[0].values[0][0];
+    const done   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 2', [id])[0].values[0][0];
     const isActive  = id === activeSectionId ? 'active' : '';
-    const countText = done > 0 ? `${active} / ${done} ✓` : `${active}`;
+    let countParts = [];
+    if (todo) countParts.push(`${todo}`);
+    if (inProg) countParts.push(`${inProg} ⏳`);
+    if (done) countParts.push(`${done} ✓`);
+    const countText = countParts.join(' / ') || '0';
 
     html += `
       <div class="nav-item ${isActive}" data-section-id="${id}"
@@ -94,7 +101,7 @@ function renderSidebar() {
 function renderMain() {
   const header    = document.getElementById('mainHeader');
   const body      = document.getElementById('mainBody');
-  const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+  const searchTerm = sectionSearchTerm;
 
   // No section selected
   if (!activeSectionId) {
@@ -126,8 +133,11 @@ function renderMain() {
       <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteSection(${sid})">&#10005; Delete</button>
     </div>`;
 
-  // Load items
-  let itemsRes = db.exec('SELECT id, title, description, link, completed, recurring FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
+  // Section search bar
+  const searchVal = escAttr(sectionSearchTerm);
+
+  // Load items (now including status column)
+  let itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
   let rows = itemsRes.length ? itemsRes[0].values : [];
 
   if (searchTerm) {
@@ -137,10 +147,11 @@ function renderMain() {
     );
   }
 
-  const activeRows = rows.filter(r => !r[4]);
-  const doneRows   = rows.filter(r =>  r[4]);
+  const todoRows   = rows.filter(r => (r[6] || 0) === 0);
+  const ipRows     = rows.filter(r => (r[6] || 0) === 1);
+  const doneRows   = rows.filter(r => (r[6] || 0) === 2);
 
-  if (activeRows.length === 0 && doneRows.length === 0 && !searchTerm) {
+  if (todoRows.length === 0 && ipRows.length === 0 && doneRows.length === 0 && !searchTerm) {
     body.innerHTML = `
       <div class="empty-state">
         <h3>No items yet</h3>
@@ -150,10 +161,18 @@ function renderMain() {
     return;
   }
 
-  // Active items
-  let html = '<div id="itemList">';
-  for (const [iid, title, desc, link, completed, recurring] of activeRows) {
-    html += renderItem(iid, title, desc, link, completed, recurring, expandedItems.has(iid), sid);
+  // Search bar
+  let html = `<div class="section-search-wrap">
+    <input type="text" class="section-search" placeholder="Filter items… (type to search)"
+           id="sectionSearchBox" value="${searchVal}" oninput="onSectionSearch(this.value)">
+    ${searchTerm ? '<button class="section-search-clear" onclick="clearSectionSearch()">&#10005;</button>' : ''}
+  </div>`;
+
+  // To Do items
+  html += `<div class="status-group-header status-todo">📋 To Do (${todoRows.length})</div>`;
+  html += '<div id="itemList">';
+  for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
+    html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
   }
   html += '</div>';
 
@@ -161,23 +180,44 @@ function renderMain() {
     html += `<div class="add-item-row" onclick="openItemModal(${sid})">+ Add Item</div>`;
   }
 
+  // In Progress items
+  if (ipRows.length > 0 || !searchTerm) {
+    const ipArrow = inProgressCollapsed ? 'collapsed' : '';
+    html += `
+      <div class="status-divider status-ip-divider" onclick="toggleInProgressSection()">
+        <div class="status-divider-line"></div>
+        <div class="status-divider-label">
+          <span class="status-divider-arrow ${ipArrow}">&#9660;</span>
+          ⏳ In Progress (${ipRows.length})
+        </div>
+        <div class="status-divider-line"></div>
+      </div>`;
+    if (!inProgressCollapsed) {
+      html += '<div class="ip-items">';
+      for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      }
+      html += '</div>';
+    }
+  }
+
   // Done items
-  if (doneRows.length > 0) {
+  if (doneRows.length > 0 || !searchTerm) {
     const arrowClass = doneCollapsed ? 'collapsed' : '';
     html += `
-      <div class="done-divider" onclick="toggleDoneSection()">
-        <div class="done-divider-line"></div>
-        <div class="done-divider-label">
-          <span class="done-divider-arrow ${arrowClass}">&#9660;</span>
-          Done (${doneRows.length})
+      <div class="status-divider status-done-divider" onclick="toggleDoneSection()">
+        <div class="status-divider-line"></div>
+        <div class="status-divider-label">
+          <span class="status-divider-arrow ${arrowClass}">&#9660;</span>
+          ✅ Done (${doneRows.length})
         </div>
-        <div class="done-divider-line"></div>
+        <div class="status-divider-line"></div>
       </div>`;
 
     if (!doneCollapsed) {
       html += '<div class="done-items">';
-      for (const [iid, title, desc, link, completed, recurring] of doneRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, expandedItems.has(iid), sid);
+      for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
       }
       html += '</div>';
     }
@@ -189,19 +229,33 @@ function renderMain() {
 
 /* ── Single Item HTML ── */
 
-function renderItem(iid, title, desc, link, completed, recurring, isExpanded, sid) {
-  const completedCls = completed ? 'completed' : '';
-  const checkedCls   = completed ? 'checked' : '';
+function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid) {
+  const st = status || 0; // 0=todo, 1=in-progress, 2=done
+  const statusCls  = st === 2 ? 'status-done' : st === 1 ? 'status-ip' : 'status-todo';
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
   const recurBadge = recurring ? '<span class="item-recurring" title="Recurring daily">&#128260;</span>' : '';
+
+  // Checkbox appearance based on status
+  let checkboxCls = '';
+  let checkboxContent = '';
+  if (st === 1) { checkboxCls = 'in-progress'; checkboxContent = '&#9654;'; }
+  else if (st === 2) { checkboxCls = 'checked'; checkboxContent = '&#10003;'; }
 
   let detail = '';
   if (isExpanded) {
     const recurBtn = recurring
       ? `<button class="btn btn-ghost btn-sm btn-recurring-active" onclick="toggleRecurring(event, ${iid})">&#128260; Recurring</button>`
       : `<button class="btn btn-ghost btn-sm" onclick="toggleRecurring(event, ${iid})">&#128260; Set Recurring</button>`;
+
+    // Status buttons
+    const statusBtns = `
+      <div class="item-status-btns">
+        <button class="btn btn-ghost btn-sm ${st === 0 ? 'btn-status-active' : ''}" onclick="setStatus(event, ${iid}, 0)">📋 To Do</button>
+        <button class="btn btn-ghost btn-sm ${st === 1 ? 'btn-status-active btn-status-ip' : ''}" onclick="setStatus(event, ${iid}, 1)">⏳ In Progress</button>
+        <button class="btn btn-ghost btn-sm ${st === 2 ? 'btn-status-active btn-status-done' : ''}" onclick="setStatus(event, ${iid}, 2)">✅ Done</button>
+      </div>`;
 
     detail = `
       <div class="item-detail">
@@ -211,6 +265,7 @@ function renderItem(iid, title, desc, link, completed, recurring, isExpanded, si
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
+        ${statusBtns}
         <div class="item-detail-actions">
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
           ${recurBtn}
@@ -220,7 +275,7 @@ function renderItem(iid, title, desc, link, completed, recurring, isExpanded, si
   }
 
   return `
-    <div class="item ${completedCls} ${expandedCls}" data-item-id="${iid}"
+    <div class="item ${statusCls} ${expandedCls}" data-item-id="${iid}"
          draggable="true"
          ondragstart="onItemDragStart(event, ${iid})"
          ondragover="onItemDragOver(event, ${iid})"
@@ -228,7 +283,7 @@ function renderItem(iid, title, desc, link, completed, recurring, isExpanded, si
          ondrop="onItemDrop(event, ${iid})">
       <div class="item-row" onclick="toggleExpand(${iid})">
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
-        <div class="item-checkbox ${checkedCls}" onclick="toggleComplete(event, ${iid})">${completed ? '&#10003;' : ''}</div>
+        <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <span class="item-title-text">${esc(title)}</span>
         <div class="item-indicators">${recurBadge}${hasDesc}${hasLink}</div>
         <span class="expand-arrow">&#9654;</span>
@@ -252,6 +307,11 @@ function toggleDoneSection() {
   renderMain();
 }
 
+function toggleInProgressSection() {
+  inProgressCollapsed = !inProgressCollapsed;
+  renderMain();
+}
+
 
 /* ================================================================
    Navigation
@@ -260,6 +320,7 @@ function toggleDoneSection() {
 function selectSection(id) {
   activeSectionId = id;
   expandedItems.clear();
+  sectionSearchTerm = '';
   renderSidebar();
   renderMain();
   document.getElementById('sidebar').classList.remove('open');
@@ -359,6 +420,19 @@ function onSectionDrop(e, targetSid) {
    Search
    ================================================================ */
 
+function onSectionSearch(val) {
+  sectionSearchTerm = val.toLowerCase();
+  renderMain();
+  // Restore focus & cursor position
+  const el = document.getElementById('sectionSearchBox');
+  if (el) { el.focus(); el.selectionStart = el.selectionEnd = val.length; }
+}
+
+function clearSectionSearch() {
+  sectionSearchTerm = '';
+  renderMain();
+}
+
 function onSearch() {
   const term = document.getElementById('searchBox').value.toLowerCase();
   if (term.length > 0) {
@@ -375,7 +449,7 @@ function renderSearchResults(term) {
 
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
-           i.recurring, i.section_id, s.name, s.color
+           i.recurring, i.section_id, s.name, s.color, i.status
     FROM items i
     JOIN sections s ON i.section_id = s.id
     WHERE LOWER(i.title) LIKE '%' || ? || '%'
@@ -400,7 +474,7 @@ function renderSearchResults(term) {
   let html = '';
   let currentSection = null;
 
-  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor] of rows) {
+  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -410,7 +484,7 @@ function renderSearchResults(term) {
           <span style="font-size:13px;font-weight:600;color:var(--text-muted)">${esc(secName)}</span>
         </div>`;
     }
-    html += renderItem(iid, title, desc, link, completed, recurring, expandedItems.has(iid), secId);
+    html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId);
   }
 
   body.innerHTML = html;
@@ -423,12 +497,16 @@ function renderSearchResults(term) {
 
 function toggleComplete(event, id) {
   event.stopPropagation();
-  const row    = db.exec('SELECT completed FROM items WHERE id = ?', [id]);
-  const newVal = row[0].values[0][0] ? 0 : 1;
-  db.run('UPDATE items SET completed = ? WHERE id = ?', [newVal, id]);
+  const row = db.exec('SELECT status FROM items WHERE id = ?', [id]);
+  const cur = row[0].values[0][0] || 0;
+  // Cycle: 0 (todo) → 1 (in-progress) → 2 (done) → 0
+  const next = (cur + 1) % 3;
+  const completed = next === 2 ? 1 : 0;
+  db.run('UPDATE items SET status = ?, completed = ? WHERE id = ?', [next, completed, id]);
   persist();
 
-  if (newVal) {
+  const labels = ['To Do', 'In Progress', 'Done'];
+  if (next === 2) {
     const el = document.querySelector(`[data-item-id="${id}"]`);
     if (el) {
       el.classList.add('completing');
@@ -436,12 +514,21 @@ function toggleComplete(event, id) {
     } else {
       renderMain(); renderSidebar();
     }
-    toast('Moved to Done');
   } else {
-    renderMain();
-    renderSidebar();
-    toast('Restored to active');
+    renderMain(); renderSidebar();
   }
+  toast(`Moved to ${labels[next]}`);
+}
+
+function setStatus(event, id, status) {
+  event.stopPropagation();
+  const completed = status === 2 ? 1 : 0;
+  db.run('UPDATE items SET status = ?, completed = ? WHERE id = ?', [status, completed, id]);
+  persist();
+  renderMain();
+  renderSidebar();
+  const labels = ['To Do', 'In Progress', 'Done'];
+  toast(`Moved to ${labels[status]}`);
 }
 
 function toggleRecurring(event, id) {

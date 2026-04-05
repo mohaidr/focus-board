@@ -72,12 +72,23 @@ function createTables() {
   } catch (e) {
     db.run('ALTER TABLE items ADD COLUMN recurring INTEGER DEFAULT 0');
   }
+
+  // Migration: add status column (0=todo, 1=in-progress, 2=done)
+  try {
+    db.exec('SELECT status FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN status INTEGER DEFAULT 0');
+    // Migrate: completed=1 → status=2
+    db.run('UPDATE items SET status = 2 WHERE completed = 1');
+  }
 }
 
 // ── Seed Data ──
 
 function seedData() {
-  // No seed data – app starts with a clean slate.
+  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('To Do', '#55aadd', 0)");
+  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('In Progress', '#e0a055', 1)");
+  db.run("INSERT INTO sections (name, color, sort_order) VALUES ('Done', '#44cc88', 2)");
 }
 
 // ── Migrations ──
@@ -106,7 +117,7 @@ function resetRecurringTasks() {
   if (lastReset === today) return; // Already reset today
 
   // Un-complete all recurring tasks
-  db.run('UPDATE items SET completed = 0 WHERE recurring = 1 AND completed = 1');
+  db.run('UPDATE items SET completed = 0, status = 0 WHERE recurring = 1 AND completed = 1');
 
   localStorage.setItem('focusboard_last_reset', today);
 }
