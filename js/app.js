@@ -108,10 +108,19 @@ function renderMain() {
     header.innerHTML = `<div class="main-header-left">
       <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
     </div>`;
-    body.innerHTML = `<div class="empty-state">
-      <h3>Select a section</h3>
-      <p>Pick a section from the sidebar or create a new one</p>
-    </div>`;
+    const hasSections = db.exec('SELECT COUNT(*) FROM sections')[0].values[0][0] > 0;
+    if (hasSections) {
+      body.innerHTML = `<div class="empty-state">
+        <h3>Select a section</h3>
+        <p>Pick a section from the sidebar</p>
+      </div>`;
+    } else {
+      body.innerHTML = `<div class="empty-state">
+        <h3>Welcome to Dashora</h3>
+        <p>Create your first section to get started</p>
+        <button class="btn btn-primary" onclick="openSectionModal()" style="margin-top:12px">+ New Section</button>
+      </div>`;
+    }
     return;
   }
 
