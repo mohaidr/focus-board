@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#6e8efb">
+<meta name="theme-color" content="#1a2030">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Dashora">
@@ -11,6 +11,9 @@
 <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
 <link rel="apple-touch-icon" href="icons/icon-192.svg">
 <title>Dashora</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Patrick+Hand&family=Satisfy&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -28,7 +31,7 @@
   </div>
   <div class="sidebar-nav" id="sidebarNav"></div>
   <div class="sidebar-bottom">
-    <button class="btn btn-primary btn-block" onclick="openSectionModal()">+ New Section</button>
+    <button class="btn btn-primary btn-block" onclick="openSectionModal()">+ New Board</button>
     <div style="display:flex; gap:6px;">
       <button class="btn btn-ghost btn-block btn-sm" onclick="exportData()">Export</button>
       <button class="btn btn-ghost btn-block btn-sm" onclick="document.getElementById('importInput').click()">Import</button>
@@ -47,8 +50,8 @@
   </div>
   <div class="main-body" id="mainBody">
     <div class="empty-state">
-      <h3>Select a section</h3>
-      <p>Pick a section from the sidebar or create a new one</p>
+      <h3>Select a board</h3>
+      <p>Pick a board from the sidebar or create a new one</p>
     </div>
   </div>
 </div>
@@ -58,10 +61,10 @@
 <!--  Section Modal  -->
 <div class="modal-overlay" id="sectionModal">
   <div class="modal">
-    <h2 id="sectionModalTitle">New Section</h2>
+    <h2 id="sectionModalTitle">New Board</h2>
     <input type="hidden" id="editSectionId">
     <div class="form-group">
-      <label>Section Name</label>
+      <label>Board Name</label>
       <input type="text" id="sectionName" placeholder="e.g. Regressions, Tasks for Today..."
              onkeydown="if(event.key==='Enter')saveSection()">
     </div>

@@ -16,6 +16,7 @@ let dragItemId      = null;
 let dragSectionId   = null;
 let doneCollapsed      = false;
 let inProgressCollapsed = false;
+let todoCollapsed       = false;
 let selectedColor      = COLORS[5];
 let sectionSearchTerm  = '';
 
@@ -58,11 +59,11 @@ function renderSidebar() {
   const sections = db.exec('SELECT id, name, color FROM sections ORDER BY sort_order, id');
 
   if (!sections.length || !sections[0].values.length) {
-    nav.innerHTML = '<div class="nav-label">No sections yet</div>';
+    nav.innerHTML = '<div class="nav-label">No boards yet</div>';
     return;
   }
 
-  let html = '<div class="nav-label">Sections</div>';
+  let html = '<div class="nav-label">Boards</div>';
 
   for (const [id, name, color] of sections[0].values) {
     const todo   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 0', [id])[0].values[0][0];
@@ -111,14 +112,14 @@ function renderMain() {
     const hasSections = db.exec('SELECT COUNT(*) FROM sections')[0].values[0][0] > 0;
     if (hasSections) {
       body.innerHTML = `<div class="empty-state">
-        <h3>Select a section</h3>
-        <p>Pick a section from the sidebar</p>
+        <h3>Select a board</h3>
+        <p>Pick a board from the sidebar</p>
       </div>`;
     } else {
       body.innerHTML = `<div class="empty-state">
         <h3>Welcome to Dashora</h3>
-        <p>Create your first section to get started</p>
-        <button class="btn btn-primary" onclick="openSectionModal()" style="margin-top:12px">+ New Section</button>
+        <p>Create your first board to get started</p>
+        <button class="btn btn-primary" onclick="openSectionModal()" style="margin-top:12px">+ New Board</button>
       </div>`;
     }
     return;
@@ -138,8 +139,8 @@ function renderMain() {
       <span class="item-total">${total} item${total !== 1 ? 's' : ''}</span>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-ghost btn-sm" onclick="openSectionModal(${sid})">&#9998; Edit</button>
-      <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteSection(${sid})">&#10005; Delete</button>
+      <button class="btn btn-ghost btn-sm" onclick="openSectionModal(${sid})">&#9998; Edit Board</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteSection(${sid})">&#10005; Delete Board</button>
     </div>`;
 
   // Section search bar
@@ -164,7 +165,7 @@ function renderMain() {
     body.innerHTML = `
       <div class="empty-state">
         <h3>No items yet</h3>
-        <p>Add your first item to this section</p>
+        <p>Add your first item to this board</p>
         <button class="btn btn-primary" onclick="openItemModal(${sid})">+ Add Item</button>
       </div>`;
     return;
@@ -177,60 +178,76 @@ function renderMain() {
     ${searchTerm ? '<button class="section-search-clear" onclick="clearSectionSearch()">&#10005;</button>' : ''}
   </div>`;
 
-  // To Do items
-  html += `<div class="status-group-header status-todo">📋 To Do (${todoRows.length})</div>`;
-  html += '<div id="itemList">';
-  for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
-    html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+  // Kanban board with three columns
+  html += '<div class="kanban-board">';
+
+  // ── To Do column ──
+  const todoArrow = todoCollapsed ? 'collapsed' : '';
+  html += `<div class="kanban-column kanban-col-todo ${todoCollapsed ? 'kanban-col-collapsed' : ''}"
+                ondragover="onColumnDragOver(event, 0)"
+                ondragleave="onColumnDragLeave(event)"
+                ondrop="onColumnDrop(event, 0)">
+    <div class="kanban-column-header" onclick="toggleKanbanCol('todo')">
+      <span class="kanban-col-arrow ${todoArrow}">&#9660;</span>
+      <span class="kanban-col-icon">📋</span>
+      <span class="kanban-col-title">To Do</span>
+      <span class="kanban-col-count">${todoRows.length}</span>
+    </div>`;
+  if (!todoCollapsed) {
+    html += '<div class="kanban-column-body" id="itemList">';
+    for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
+      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+    }
+    html += '</div>';
+    if (!searchTerm) {
+      html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">+ Add Item</div>`;
+    }
   }
   html += '</div>';
 
-  if (!searchTerm) {
-    html += `<div class="add-item-row" onclick="openItemModal(${sid})">+ Add Item</div>`;
-  }
-
-  // In Progress items
-  if (ipRows.length > 0 || !searchTerm) {
-    const ipArrow = inProgressCollapsed ? 'collapsed' : '';
-    html += `
-      <div class="status-divider status-ip-divider" onclick="toggleInProgressSection()">
-        <div class="status-divider-line"></div>
-        <div class="status-divider-label">
-          <span class="status-divider-arrow ${ipArrow}">&#9660;</span>
-          ⏳ In Progress (${ipRows.length})
-        </div>
-        <div class="status-divider-line"></div>
-      </div>`;
-    if (!inProgressCollapsed) {
-      html += '<div class="ip-items">';
-      for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
-      }
-      html += '</div>';
+  // ── In Progress column ──
+  const ipArrow = inProgressCollapsed ? 'collapsed' : '';
+  html += `<div class="kanban-column kanban-col-ip ${inProgressCollapsed ? 'kanban-col-collapsed' : ''}"
+                ondragover="onColumnDragOver(event, 1)"
+                ondragleave="onColumnDragLeave(event)"
+                ondrop="onColumnDrop(event, 1)">
+    <div class="kanban-column-header" onclick="toggleKanbanCol('ip')">
+      <span class="kanban-col-arrow ${ipArrow}">&#9660;</span>
+      <span class="kanban-col-icon">⏳</span>
+      <span class="kanban-col-title">In Progress</span>
+      <span class="kanban-col-count">${ipRows.length}</span>
+    </div>`;
+  if (!inProgressCollapsed) {
+    html += '<div class="kanban-column-body">';
+    for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
+      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
     }
+    html += '</div>';
   }
+  html += '</div>';
 
-  // Done items
-  if (doneRows.length > 0 || !searchTerm) {
-    const arrowClass = doneCollapsed ? 'collapsed' : '';
-    html += `
-      <div class="status-divider status-done-divider" onclick="toggleDoneSection()">
-        <div class="status-divider-line"></div>
-        <div class="status-divider-label">
-          <span class="status-divider-arrow ${arrowClass}">&#9660;</span>
-          ✅ Done (${doneRows.length})
-        </div>
-        <div class="status-divider-line"></div>
-      </div>`;
-
-    if (!doneCollapsed) {
-      html += '<div class="done-items">';
-      for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
-      }
-      html += '</div>';
+  // ── Done column ──
+  const doneArrow = doneCollapsed ? 'collapsed' : '';
+  html += `<div class="kanban-column kanban-col-done ${doneCollapsed ? 'kanban-col-collapsed' : ''}"
+                ondragover="onColumnDragOver(event, 2)"
+                ondragleave="onColumnDragLeave(event)"
+                ondrop="onColumnDrop(event, 2)">
+    <div class="kanban-column-header" onclick="toggleKanbanCol('done')">
+      <span class="kanban-col-arrow ${doneArrow}">&#9660;</span>
+      <span class="kanban-col-icon">✅</span>
+      <span class="kanban-col-title">Done</span>
+      <span class="kanban-col-count">${doneRows.length}</span>
+    </div>`;
+  if (!doneCollapsed) {
+    html += '<div class="kanban-column-body">';
+    for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
+      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
     }
+    html += '</div>';
   }
+  html += '</div>';
+
+  html += '</div>'; // close .kanban-board
 
   body.innerHTML = html;
 }
@@ -327,6 +344,13 @@ function toggleInProgressSection() {
   renderMain();
 }
 
+function toggleKanbanCol(col) {
+  if (col === 'todo') todoCollapsed = !todoCollapsed;
+  else if (col === 'ip') inProgressCollapsed = !inProgressCollapsed;
+  else if (col === 'done') doneCollapsed = !doneCollapsed;
+  renderMain();
+}
+
 
 /* ================================================================
    Navigation
@@ -383,12 +407,26 @@ function onItemDragLeave(e) {
 
 function onItemDrop(e, targetId) {
   e.preventDefault();
+  e.stopPropagation();
   document.querySelectorAll('.item').forEach(el => {
     el.classList.remove('dragging');
     el.style.borderTop = '';
   });
 
   if (dragItemId === targetId || !dragItemId) return;
+
+  // If dropped onto an item in a different status column, also change status
+  const targetStatus = db.exec('SELECT status FROM items WHERE id = ?', [targetId]);
+  const dragStatus = db.exec('SELECT status FROM items WHERE id = ?', [dragItemId]);
+  if (targetStatus.length && dragStatus.length) {
+    const tSt = targetStatus[0].values[0][0] || 0;
+    const dSt = dragStatus[0].values[0][0] || 0;
+    if (tSt !== dSt) {
+      const completed = tSt === 2 ? 1 : 0;
+      const completedAt = tSt === 2 ? new Date().toISOString() : null;
+      db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [tSt, completed, completedAt, dragItemId]);
+    }
+  }
 
   const itemsRes = db.exec('SELECT id FROM items WHERE section_id = ? ORDER BY sort_order, id', [activeSectionId]);
   if (!itemsRes.length) return;
@@ -403,7 +441,44 @@ function onItemDrop(e, targetId) {
   persist();
   dragItemId = null;
   renderMain();
+  renderSidebar();
   toast('Item moved');
+}
+
+
+/* ================================================================
+   Drag & Drop – Column (change status by dropping onto column)
+   ================================================================ */
+
+function onColumnDragOver(e, status) {
+  e.preventDefault();
+  e.currentTarget.classList.add('kanban-col-dragover');
+}
+
+function onColumnDragLeave(e) {
+  e.currentTarget.classList.remove('kanban-col-dragover');
+}
+
+function onColumnDrop(e, status) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('kanban-col-dragover');
+  document.querySelectorAll('.item').forEach(el => {
+    el.classList.remove('dragging');
+    el.style.borderTop = '';
+  });
+
+  if (!dragItemId) return;
+
+  const completed = status === 2 ? 1 : 0;
+  const completedAt = status === 2 ? new Date().toISOString() : null;
+  db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [status, completed, completedAt, dragItemId]);
+
+  persist();
+  dragItemId = null;
+  renderMain();
+  renderSidebar();
+  const labels = ['To Do', 'In Progress', 'Done'];
+  toast(`Moved to ${labels[status]}`);
 }
 
 
@@ -436,7 +511,7 @@ function onSectionDrop(e, targetSid) {
   dragSectionId = null;
   persist();
   renderSidebar();
-  toast('Section moved');
+  toast('Board moved');
 }
 
 
@@ -579,7 +654,7 @@ function openSectionModal(editId) {
   const editInput = document.getElementById('editSectionId');
 
   if (editId) {
-    titleEl.textContent = 'Edit Section';
+    titleEl.textContent = 'Edit Board';
     const row = db.exec('SELECT name, color FROM sections WHERE id = ?', [editId]);
     if (row.length) {
       nameInput.value = row[0].values[0][0];
@@ -587,7 +662,7 @@ function openSectionModal(editId) {
     }
     editInput.value = editId;
   } else {
-    titleEl.textContent = 'New Section';
+    titleEl.textContent = 'New Board';
     nameInput.value = '';
     selectedColor   = COLORS[Math.floor(Math.random() * COLORS.length)];
     editInput.value = '';
@@ -610,7 +685,7 @@ function pickColor(c) { selectedColor = c; renderColors(); }
 function saveSection() {
   const name   = document.getElementById('sectionName').value.trim();
   const editId = document.getElementById('editSectionId').value;
-  if (!name) { toast('Section name is required'); return; }
+  if (!name) { toast('Board name is required'); return; }
 
   if (editId) {
     db.run('UPDATE sections SET name = ?, color = ? WHERE id = ?', [name, selectedColor, parseInt(editId)]);
@@ -625,11 +700,11 @@ function saveSection() {
   closeModal('sectionModal');
   renderSidebar();
   renderMain();
-  toast(editId ? 'Section updated' : 'Section created');
+  toast(editId ? 'Board updated' : 'Board created');
 }
 
 function deleteSection(id) {
-  if (!confirm('Delete this section and all its items?')) return;
+  if (!confirm('Delete this board and all its items?')) return;
   db.run('DELETE FROM items WHERE section_id = ?', [id]);
   db.run('DELETE FROM sections WHERE id = ?', [id]);
 
@@ -641,7 +716,7 @@ function deleteSection(id) {
   persist();
   renderSidebar();
   renderMain();
-  toast('Section deleted');
+  toast('Board deleted');
 }
 
 

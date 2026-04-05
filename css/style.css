@@ -30,12 +30,13 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Patrick Hand', 'Segoe UI', cursive;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
   display: flex;
-  line-height: 1.5;
+  line-height: 1.55;
+  font-size: 18px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -65,10 +66,11 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .sidebar-brand h1 {
-  font-size: 20px;
-  font-weight: 700;
+  font-family: 'Satisfy', cursive;
+  font-size: 26px;
+  font-weight: 400;
   color: var(--accent);
-  letter-spacing: -0.3px;
+  letter-spacing: 0.5px;
 }
 .sidebar-brand h1 span {
   color: var(--text);
@@ -85,7 +87,8 @@ body {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
-  font-size: 13px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -141,8 +144,8 @@ body {
 
 .nav-name {
   flex: 1;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -229,9 +232,10 @@ body {
 }
 
 .main-header h2 {
-  font-size: 24px;
+  font-family: 'Caveat', cursive;
+  font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.3px;
+  letter-spacing: 0.2px;
 }
 .main-header .item-total {
   font-size: 13px;
@@ -242,6 +246,7 @@ body {
 .main-body {
   flex: 1;
   padding: 24px 36px 48px;
+  overflow: auto;
 }
 
 
@@ -252,14 +257,15 @@ body {
   padding: 10px 20px;
   border-radius: var(--radius);
   border: none;
-  font-size: 13px;
-  font-weight: 600;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
+  font-weight: 400;
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  letter-spacing: 0.1px;
+  letter-spacing: 0.3px;
 }
 .btn-primary {
   background: var(--accent);
@@ -284,7 +290,7 @@ body {
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { background: var(--danger-hover); }
 .btn-block { width: 100%; justify-content: center; }
-.btn-sm { padding: 7px 14px; font-size: 12px; }
+.btn-sm { padding: 7px 14px; font-size: 14px; }
 
 .btn-icon {
   background: none;
@@ -321,7 +327,7 @@ body {
 .item.status-done  { border-left-color: var(--success); }
 .item.status-done .item-title-text {
   text-decoration: line-through;
-  color: #8a8d96;
+  color: var(--text-muted);
 }
 .item.dragging { opacity: 0.4; }
 
@@ -379,8 +385,8 @@ body {
 
 .item-title-text {
   flex: 1;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 400;
   line-height: 1.45;
   word-break: break-word;
 }
@@ -487,7 +493,8 @@ body {
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
-  font-size: 14px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 17px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -538,7 +545,135 @@ body {
 
 
 /* ================================================================
-   Status Groups
+   Kanban Board Layout
+   ================================================================ */
+.kanban-board {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+
+.kanban-column {
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  overflow: hidden;
+}
+.kanban-column.kanban-col-dragover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow), 0 4px 20px rgba(110, 142, 251, 0.15);
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.kanban-column-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.kanban-col-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.kanban-col-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.kanban-col-collapsed .kanban-column-header {
+  border-bottom: none;
+  padding-bottom: 16px;
+}
+
+.kanban-col-icon {
+  font-size: 16px;
+}
+
+.kanban-col-title {
+  font-family: 'Caveat', cursive;
+  font-size: 20px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  flex: 1;
+}
+
+.kanban-col-todo .kanban-col-title { color: var(--accent); }
+.kanban-col-ip .kanban-col-title { color: var(--warning); }
+.kanban-col-done .kanban-col-title { color: var(--success); }
+
+.kanban-col-todo .kanban-column-header { border-bottom-color: rgba(110, 142, 251, 0.2); }
+.kanban-col-ip .kanban-column-header { border-bottom-color: rgba(240, 168, 94, 0.2); }
+.kanban-col-done .kanban-column-header { border-bottom-color: rgba(76, 216, 157, 0.2); }
+
+.kanban-col-count {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg);
+  color: var(--text-muted);
+  padding: 2px 9px;
+  border-radius: 10px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.kanban-column-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  min-height: 60px;
+}
+
+.kanban-column-body::-webkit-scrollbar { width: 4px; }
+.kanban-column-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.kanban-add-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.kanban-add-item:hover {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* Inside kanban columns, items look more like cards */
+.kanban-column .item {
+  border-left-width: 3px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+}
+.kanban-column .item:last-child { margin-bottom: 0; }
+
+/* Done column cards are dimmed */
+.kanban-col-done .item { opacity: 0.7; }
+.kanban-col-done .item:hover { opacity: 0.9; }
+
+
+/* ================================================================
+   Status Groups (legacy, kept for search results)
    ================================================================ */
 .status-group-header {
   font-size: 12px;
@@ -683,7 +818,8 @@ body {
 }
 
 .modal h2 {
-  font-size: 18px;
+  font-family: 'Caveat', cursive;
+  font-size: 26px;
   font-weight: 700;
   margin-bottom: 24px;
 }
@@ -829,7 +965,8 @@ body {
   color: var(--text-muted);
 }
 .empty-state h3 {
-  font-size: 20px;
+  font-family: 'Caveat', cursive;
+  font-size: 26px;
   margin-bottom: 12px;
   color: var(--text);
   font-weight: 700;
