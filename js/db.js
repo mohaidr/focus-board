@@ -88,6 +88,22 @@ function createTables() {
   } catch (e) {
     db.run('ALTER TABLE items ADD COLUMN completed_at TEXT DEFAULT NULL');
   }
+
+  // Migration: add type column to sections ('task' or 'reference')
+  try {
+    db.exec('SELECT type FROM sections LIMIT 1');
+  } catch (e) {
+    db.run("ALTER TABLE sections ADD COLUMN type TEXT DEFAULT 'task'");
+  }
+
+  // Migration: add prioritized flag to sections (0=auto-sort by date, 1=user-ordered)
+  try {
+    db.exec('SELECT prioritized FROM sections LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE sections ADD COLUMN prioritized INTEGER DEFAULT 0');
+    // Mark existing boards that have a custom sort_order as prioritized
+    db.run('UPDATE sections SET prioritized = 1 WHERE sort_order > 0');
+  }
 }
 
 // ── Seed Data ──
@@ -102,7 +118,7 @@ function migrateTasksFirst() {
   if (!res.length || !res[0].values.length) return;
 
   const tasksId = res[0].values[0][0];
-  const allSections = db.exec('SELECT id FROM sections ORDER BY sort_order, id');
+  const allSections = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   if (!allSections.length) return;
 
   let ids = allSections[0].values.map(r => r[0]);
@@ -170,7 +186,7 @@ async function initDB() {
   persist();
 
   // Select first section by default
-  const first = db.exec('SELECT id FROM sections ORDER BY sort_order, id LIMIT 1');
+  const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
   if (first.length && first[0].values.length) {
     activeSectionId = first[0].values[0][0];
   }

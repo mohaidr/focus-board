@@ -18,7 +18,11 @@ let doneCollapsed      = false;
 let inProgressCollapsed = false;
 let todoCollapsed       = false;
 let selectedColor      = COLORS[5];
+let selectedBoardType  = 'task';
 let sectionSearchTerm  = '';
+let taskBoardsVisible  = 5;
+let refBoardsVisible   = 5;
+const SIDEBAR_PAGE_SIZE = 5;
 
 
 /* ================================================================
@@ -56,42 +60,96 @@ function toast(msg) {
 
 function renderSidebar() {
   const nav = document.getElementById('sidebarNav');
-  const sections = db.exec('SELECT id, name, color FROM sections ORDER BY sort_order, id');
+  const sections = db.exec('SELECT id, name, color, type FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
 
   if (!sections.length || !sections[0].values.length) {
     nav.innerHTML = '<div class="nav-label">No boards yet</div>';
     return;
   }
 
-  let html = '<div class="nav-label">Boards</div>';
+  const allRows  = sections[0].values;
+  const taskRows = allRows.filter(r => (r[3] || 'task') === 'task');
+  const refRows  = allRows.filter(r => r[3] === 'reference');
 
-  for (const [id, name, color] of sections[0].values) {
+  let html = '';
+
+  // ── Task Boards ──
+  html += '<div class="nav-label">📋 Task Boards</div>';
+  if (taskRows.length === 0) {
+    html += '<div class="nav-empty-hint">No task boards</div>';
+  }
+  const visibleTasks = taskRows.slice(0, taskBoardsVisible);
+  for (const [id, name, color] of visibleTasks) {
+    const isActive = id === activeSectionId ? 'active' : '';
     const todo   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 0', [id])[0].values[0][0];
     const inProg = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 1', [id])[0].values[0][0];
     const done   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 2', [id])[0].values[0][0];
-    const isActive  = id === activeSectionId ? 'active' : '';
     let countParts = [];
     if (todo) countParts.push(`${todo}`);
     if (inProg) countParts.push(`${inProg} ⏳`);
     if (done) countParts.push(`${done} ✓`);
     const countText = countParts.join(' / ') || '0';
+    html += renderNavItem(id, name, color, isActive, countText);
+  }
+  if (taskRows.length > taskBoardsVisible) {
+    const remaining = taskRows.length - taskBoardsVisible;
+    const next = Math.min(remaining, SIDEBAR_PAGE_SIZE);
+    html += `<div class="nav-toggle" onclick="showMoreBoards('task')">▼ Show ${next} more (${remaining} left)</div>`;
+  } else if (taskBoardsVisible > SIDEBAR_PAGE_SIZE && taskRows.length > SIDEBAR_PAGE_SIZE) {
+    html += `<div class="nav-toggle" onclick="showLessBoards('task')">▲ Show less</div>`;
+  }
 
-    html += `
-      <div class="nav-item ${isActive}" data-section-id="${id}"
-           onclick="selectSection(${id})"
-           draggable="true"
-           ondragstart="onSectionDragStart(event, ${id})"
-           ondragover="onSectionDragOver(event)"
-           ondrop="onSectionDrop(event, ${id})">
-        <span class="drag-handle">&#9776;</span>
-        <div class="nav-dot" style="background:${escAttr(color)}"></div>
-        <span class="nav-name">${esc(name)}</span>
-        <button class="nav-edit" onclick="event.stopPropagation(); openSectionModal(${id})" title="Edit section">&#9998;</button>
-        <span class="nav-count">${countText}</span>
-      </div>`;
+  // ── Divider ──
+  html += '<div class="nav-divider"></div>';
+
+  // ── Reference Boards ──
+  html += '<div class="nav-label">📖 Reference Boards</div>';
+  if (refRows.length === 0) {
+    html += '<div class="nav-empty-hint">No reference boards</div>';
+  }
+  const visibleRefs = refRows.slice(0, refBoardsVisible);
+  for (const [id, name, color] of visibleRefs) {
+    const isActive = id === activeSectionId ? 'active' : '';
+    const total = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ?', [id])[0].values[0][0];
+    html += renderNavItem(id, name, color, isActive, `${total}`);
+  }
+  if (refRows.length > refBoardsVisible) {
+    const remaining = refRows.length - refBoardsVisible;
+    const next = Math.min(remaining, SIDEBAR_PAGE_SIZE);
+    html += `<div class="nav-toggle" onclick="showMoreBoards('ref')">▼ Show ${next} more (${remaining} left)</div>`;
+  } else if (refBoardsVisible > SIDEBAR_PAGE_SIZE && refRows.length > SIDEBAR_PAGE_SIZE) {
+    html += `<div class="nav-toggle" onclick="showLessBoards('ref')">▲ Show less</div>`;
   }
 
   nav.innerHTML = html;
+}
+
+function showMoreBoards(group) {
+  if (group === 'task') taskBoardsVisible += SIDEBAR_PAGE_SIZE;
+  else if (group === 'ref') refBoardsVisible += SIDEBAR_PAGE_SIZE;
+  renderSidebar();
+}
+
+function showLessBoards(group) {
+  if (group === 'task') taskBoardsVisible = SIDEBAR_PAGE_SIZE;
+  else if (group === 'ref') refBoardsVisible = SIDEBAR_PAGE_SIZE;
+  renderSidebar();
+}
+
+function renderNavItem(id, name, color, isActive, countText) {
+  return `
+    <div class="nav-item ${isActive}" data-section-id="${id}"
+         onclick="selectSection(${id})"
+         draggable="true"
+         ondragstart="onSectionDragStart(event, ${id})"
+         ondragover="onSectionDragOver(event)"
+         ondrop="onSectionDrop(event, ${id})">
+      <span class="drag-handle">&#9776;</span>
+      <div class="nav-dot" style="background:${escAttr(color)}"></div>
+      <span class="nav-name">${esc(name)}</span>
+      <button class="nav-edit" onclick="event.stopPropagation(); openSectionModal(${id})" title="Edit board">&#9998;</button>
+      <span class="nav-count">${countText}</span>
+    </div>`;
 }
 
 
@@ -126,9 +184,10 @@ function renderMain() {
   }
 
   // Load section info
-  const sec = db.exec('SELECT id, name, color FROM sections WHERE id = ?', [activeSectionId]);
+  const sec = db.exec('SELECT id, name, color, type FROM sections WHERE id = ?', [activeSectionId]);
   if (!sec.length || !sec[0].values.length) { activeSectionId = null; renderMain(); return; }
-  const [sid, sname, scolor] = sec[0].values[0];
+  const [sid, sname, scolor, stype] = sec[0].values[0];
+  const boardType = stype || 'task';
   const total = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ?', [sid])[0].values[0][0];
 
   header.innerHTML = `
@@ -146,22 +205,23 @@ function renderMain() {
   // Section search bar
   const searchVal = escAttr(sectionSearchTerm);
 
-  // Load items (now including status column)
-  let itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
+  // Load items from DB (with search filter if active)
+  let itemsRes;
+  if (searchTerm) {
+    itemsRes = db.exec(
+      `SELECT id, title, description, link, completed, recurring, status
+       FROM items
+       WHERE section_id = ?
+         AND (LOWER(title) LIKE '%' || ? || '%' OR LOWER(description) LIKE '%' || ? || '%')
+       ORDER BY sort_order, id`,
+      [sid, searchTerm, searchTerm]
+    );
+  } else {
+    itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
+  }
   let rows = itemsRes.length ? itemsRes[0].values : [];
 
-  if (searchTerm) {
-    rows = rows.filter(r =>
-      r[1].toLowerCase().includes(searchTerm) ||
-      (r[2] && r[2].toLowerCase().includes(searchTerm))
-    );
-  }
-
-  const todoRows   = rows.filter(r => (r[6] || 0) === 0);
-  const ipRows     = rows.filter(r => (r[6] || 0) === 1);
-  const doneRows   = rows.filter(r => (r[6] || 0) === 2);
-
-  if (todoRows.length === 0 && ipRows.length === 0 && doneRows.length === 0 && !searchTerm) {
+  if (rows.length === 0 && !searchTerm) {
     body.innerHTML = `
       <div class="empty-state">
         <h3>No items yet</h3>
@@ -178,78 +238,137 @@ function renderMain() {
     ${searchTerm ? '<button class="section-search-clear" onclick="clearSectionSearch()">&#10005;</button>' : ''}
   </div>`;
 
-  // Kanban board with three columns
-  html += '<div class="kanban-board">';
-
-  // ── To Do column ──
-  const todoArrow = todoCollapsed ? 'collapsed' : '';
-  html += `<div class="kanban-column kanban-col-todo ${todoCollapsed ? 'kanban-col-collapsed' : ''}"
-                ondragover="onColumnDragOver(event, 0)"
-                ondragleave="onColumnDragLeave(event)"
-                ondrop="onColumnDrop(event, 0)">
-    <div class="kanban-column-header" onclick="toggleKanbanCol('todo')">
-      <span class="kanban-col-arrow ${todoArrow}">&#9660;</span>
-      <span class="kanban-col-icon">📋</span>
-      <span class="kanban-col-title">To Do</span>
-      <span class="kanban-col-count">${todoRows.length}</span>
-    </div>`;
-  if (!todoCollapsed) {
-    html += '<div class="kanban-column-body" id="itemList">';
-    for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
-      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+  if (boardType === 'reference') {
+    // ── Reference Board: flat list ──
+    html += '<div class="ref-board">';
+    for (const [iid, title, desc, link, completed, recurring, status] of rows) {
+      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid);
     }
     html += '</div>';
     if (!searchTerm) {
-      html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">+ Add Item</div>`;
+      html += `<div class="add-item-row" onclick="openItemModal(${sid})">+ Add Item</div>`;
     }
-  }
-  html += '</div>';
+  } else {
+    // ── Task Board: Kanban columns ──
+    const todoRows   = rows.filter(r => (r[6] || 0) === 0);
+    const ipRows     = rows.filter(r => (r[6] || 0) === 1);
+    const doneRows   = rows.filter(r => (r[6] || 0) === 2);
 
-  // ── In Progress column ──
-  const ipArrow = inProgressCollapsed ? 'collapsed' : '';
-  html += `<div class="kanban-column kanban-col-ip ${inProgressCollapsed ? 'kanban-col-collapsed' : ''}"
-                ondragover="onColumnDragOver(event, 1)"
-                ondragleave="onColumnDragLeave(event)"
-                ondrop="onColumnDrop(event, 1)">
-    <div class="kanban-column-header" onclick="toggleKanbanCol('ip')">
-      <span class="kanban-col-arrow ${ipArrow}">&#9660;</span>
-      <span class="kanban-col-icon">⏳</span>
-      <span class="kanban-col-title">In Progress</span>
-      <span class="kanban-col-count">${ipRows.length}</span>
-    </div>`;
-  if (!inProgressCollapsed) {
-    html += '<div class="kanban-column-body">';
-    for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
-      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
-    }
-    html += '</div>';
-  }
-  html += '</div>';
+    html += '<div class="kanban-board">';
 
-  // ── Done column ──
-  const doneArrow = doneCollapsed ? 'collapsed' : '';
-  html += `<div class="kanban-column kanban-col-done ${doneCollapsed ? 'kanban-col-collapsed' : ''}"
-                ondragover="onColumnDragOver(event, 2)"
-                ondragleave="onColumnDragLeave(event)"
-                ondrop="onColumnDrop(event, 2)">
-    <div class="kanban-column-header" onclick="toggleKanbanCol('done')">
-      <span class="kanban-col-arrow ${doneArrow}">&#9660;</span>
-      <span class="kanban-col-icon">✅</span>
-      <span class="kanban-col-title">Done</span>
-      <span class="kanban-col-count">${doneRows.length}</span>
-    </div>`;
-  if (!doneCollapsed) {
-    html += '<div class="kanban-column-body">';
-    for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
-      html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+    // ── To Do column ──
+    const todoArrow = todoCollapsed ? 'collapsed' : '';
+    html += `<div class="kanban-column kanban-col-todo ${todoCollapsed ? 'kanban-col-collapsed' : ''}"
+                  ondragover="onColumnDragOver(event, 0)"
+                  ondragleave="onColumnDragLeave(event)"
+                  ondrop="onColumnDrop(event, 0)">
+      <div class="kanban-column-header" onclick="toggleKanbanCol('todo')">
+        <span class="kanban-col-arrow ${todoArrow}">&#9660;</span>
+        <span class="kanban-col-icon">📋</span>
+        <span class="kanban-col-title">To Do</span>
+        <span class="kanban-col-count">${todoRows.length}</span>
+      </div>`;
+    if (!todoCollapsed) {
+      html += '<div class="kanban-column-body" id="itemList">';
+      for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      }
+      html += '</div>';
+      if (!searchTerm) {
+        html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">+ Add Item</div>`;
+      }
     }
     html += '</div>';
-  }
-  html += '</div>';
 
-  html += '</div>'; // close .kanban-board
+    // ── In Progress column ──
+    const ipArrow = inProgressCollapsed ? 'collapsed' : '';
+    html += `<div class="kanban-column kanban-col-ip ${inProgressCollapsed ? 'kanban-col-collapsed' : ''}"
+                  ondragover="onColumnDragOver(event, 1)"
+                  ondragleave="onColumnDragLeave(event)"
+                  ondrop="onColumnDrop(event, 1)">
+      <div class="kanban-column-header" onclick="toggleKanbanCol('ip')">
+        <span class="kanban-col-arrow ${ipArrow}">&#9660;</span>
+        <span class="kanban-col-icon">⏳</span>
+        <span class="kanban-col-title">In Progress</span>
+        <span class="kanban-col-count">${ipRows.length}</span>
+      </div>`;
+    if (!inProgressCollapsed) {
+      html += '<div class="kanban-column-body">';
+      for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // ── Done column ──
+    const doneArrow = doneCollapsed ? 'collapsed' : '';
+    html += `<div class="kanban-column kanban-col-done ${doneCollapsed ? 'kanban-col-collapsed' : ''}"
+                  ondragover="onColumnDragOver(event, 2)"
+                  ondragleave="onColumnDragLeave(event)"
+                  ondrop="onColumnDrop(event, 2)">
+      <div class="kanban-column-header" onclick="toggleKanbanCol('done')">
+        <span class="kanban-col-arrow ${doneArrow}">&#9660;</span>
+        <span class="kanban-col-icon">✅</span>
+        <span class="kanban-col-title">Done</span>
+        <span class="kanban-col-count">${doneRows.length}</span>
+      </div>`;
+    if (!doneCollapsed) {
+      html += '<div class="kanban-column-body">';
+      for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '</div>'; // close .kanban-board
+  }
 
   body.innerHTML = html;
+}
+
+
+/* ── Reference Item HTML ── */
+
+function renderRefItem(iid, title, desc, link, isExpanded, sid) {
+  const expandedCls = isExpanded ? 'expanded' : '';
+  const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
+  const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
+
+  let detail = '';
+  if (isExpanded) {
+    detail = `
+      <div class="item-detail">
+        ${desc
+          ? `<div class="item-detail-desc">${esc(desc)}</div>`
+          : '<div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">No description</div>'}
+        ${link
+          ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
+          : ''}
+        <div class="item-detail-actions" style="margin-top:10px;">
+          <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="item ref-item ${expandedCls}" data-item-id="${iid}"
+         draggable="true"
+         ondragstart="onItemDragStart(event, ${iid})"
+         ondragover="onItemDragOver(event, ${iid})"
+         ondragleave="onItemDragLeave(event)"
+         ondrop="onItemDrop(event, ${iid})">
+      <div class="item-row" onclick="toggleExpand(${iid})">
+        <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
+        <span class="ref-item-icon">📄</span>
+        <span class="item-title-text">${esc(title)}</span>
+        <div class="item-indicators">${hasDesc}${hasLink}</div>
+        <span class="expand-arrow">&#9654;</span>
+      </div>
+      ${detail}
+    </div>`;
 }
 
 
@@ -498,7 +617,7 @@ function onSectionDrop(e, targetSid) {
   e.preventDefault();
   if (!dragSectionId || dragSectionId === targetSid) return;
 
-  const secRes = db.exec('SELECT id FROM sections ORDER BY sort_order, id');
+  const secRes = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   if (!secRes.length) return;
 
   let ids = secRes[0].values.map(r => r[0]);
@@ -506,7 +625,8 @@ function onSectionDrop(e, targetSid) {
   const targetIdx = ids.indexOf(targetSid);
   ids.splice(targetIdx, 0, dragSectionId);
 
-  ids.forEach((id, i) => db.run('UPDATE sections SET sort_order = ? WHERE id = ?', [i, id]));
+  // Mark all reordered boards as prioritized and assign sort_order
+  ids.forEach((id, i) => db.run('UPDATE sections SET sort_order = ?, prioritized = 1 WHERE id = ?', [i, id]));
 
   dragSectionId = null;
   persist();
@@ -655,20 +775,23 @@ function openSectionModal(editId) {
 
   if (editId) {
     titleEl.textContent = 'Edit Board';
-    const row = db.exec('SELECT name, color FROM sections WHERE id = ?', [editId]);
+    const row = db.exec('SELECT name, color, type FROM sections WHERE id = ?', [editId]);
     if (row.length) {
-      nameInput.value = row[0].values[0][0];
-      selectedColor   = row[0].values[0][1];
+      nameInput.value   = row[0].values[0][0];
+      selectedColor     = row[0].values[0][1];
+      selectedBoardType = row[0].values[0][2] || 'task';
     }
     editInput.value = editId;
   } else {
     titleEl.textContent = 'New Board';
-    nameInput.value = '';
-    selectedColor   = COLORS[Math.floor(Math.random() * COLORS.length)];
-    editInput.value = '';
+    nameInput.value   = '';
+    selectedColor     = COLORS[Math.floor(Math.random() * COLORS.length)];
+    selectedBoardType = 'task';
+    editInput.value   = '';
   }
 
   renderColors();
+  renderBoardTypeOptions();
   modal.classList.add('active');
   nameInput.focus();
 }
@@ -682,17 +805,25 @@ function renderColors() {
 
 function pickColor(c) { selectedColor = c; renderColors(); }
 
+function pickBoardType(type) { selectedBoardType = type; renderBoardTypeOptions(); }
+
+function renderBoardTypeOptions() {
+  document.querySelectorAll('.board-type-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.type === selectedBoardType);
+  });
+}
+
 function saveSection() {
   const name   = document.getElementById('sectionName').value.trim();
   const editId = document.getElementById('editSectionId').value;
   if (!name) { toast('Board name is required'); return; }
 
   if (editId) {
-    db.run('UPDATE sections SET name = ?, color = ? WHERE id = ?', [name, selectedColor, parseInt(editId)]);
+    db.run('UPDATE sections SET name = ?, color = ?, type = ? WHERE id = ?', [name, selectedColor, selectedBoardType, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM sections');
-    db.run('INSERT INTO sections (name, color, sort_order) VALUES (?, ?, ?)',
-      [name, selectedColor, maxOrder[0].values[0][0] + 1]);
+    db.run('INSERT INTO sections (name, color, sort_order, type) VALUES (?, ?, ?, ?)',
+      [name, selectedColor, maxOrder[0].values[0][0] + 1, selectedBoardType]);
     activeSectionId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
   }
 
@@ -709,7 +840,7 @@ function deleteSection(id) {
   db.run('DELETE FROM sections WHERE id = ?', [id]);
 
   if (activeSectionId === id) {
-    const first = db.exec('SELECT id FROM sections ORDER BY sort_order, id LIMIT 1');
+    const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
     activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
   }
 
@@ -733,6 +864,11 @@ function openItemModal(sectionId, editId) {
   const editInput  = document.getElementById('editItemId');
   const secInput   = document.getElementById('itemSectionId');
   secInput.value   = sectionId;
+
+  // Hide recurring toggle for reference boards
+  const secType = db.exec('SELECT type FROM sections WHERE id = ?', [sectionId]);
+  const isRef = secType.length && secType[0].values[0][0] === 'reference';
+  document.getElementById('recurringGroup').style.display = isRef ? 'none' : '';
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
@@ -812,7 +948,7 @@ function closeModal(id) {
    ================================================================ */
 
 function exportData() {
-  const sections = db.exec('SELECT * FROM sections ORDER BY sort_order, id');
+  const sections = db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   const items    = db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id');
 
   const blob = new Blob(
@@ -863,7 +999,7 @@ function importData(event) {
           db.run(`INSERT INTO items (${cols}) VALUES (${ph})`, row);
       }
 
-      const first = db.exec('SELECT id FROM sections ORDER BY sort_order, id LIMIT 1');
+      const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
       activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
 
       persist();

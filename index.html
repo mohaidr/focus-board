@@ -69,6 +69,21 @@
              onkeydown="if(event.key==='Enter')saveSection()">
     </div>
     <div class="form-group">
+      <label>Board Type</label>
+      <div class="board-type-options" id="boardTypeOptions">
+        <div class="board-type-option selected" data-type="task" onclick="pickBoardType('task')">
+          <span class="board-type-icon">📋</span>
+          <span class="board-type-label">Task Board</span>
+          <span class="board-type-desc">To Do / In Progress / Done</span>
+        </div>
+        <div class="board-type-option" data-type="reference" onclick="pickBoardType('reference')">
+          <span class="board-type-icon">📖</span>
+          <span class="board-type-label">Reference Board</span>
+          <span class="board-type-desc">Simple list of items</span>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
       <label>Color</label>
       <div class="color-options" id="colorOptions"></div>
     </div>
@@ -98,7 +113,7 @@
       <label>Link (optional)</label>
       <input type="text" id="itemLink" placeholder="https://...">
     </div>
-    <div class="form-group form-group-inline">
+    <div class="form-group form-group-inline" id="recurringGroup">
       <label class="toggle-label">
         <input type="checkbox" id="itemRecurring">
         <span class="toggle-slider"></span>

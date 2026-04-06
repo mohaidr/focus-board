@@ -1,4 +1,5 @@
-const CACHE_NAME = 'dashora-v1';
+const CACHE_VERSION = 5;
+const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +9,9 @@ const ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm',
 ];
+
+// External CDN assets that are safe to cache long-term
+const CDN_HOSTS = ['cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -26,19 +30,34 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
+
+  // Cache-first for CDN/external assets (they're versioned and don't change)
+  if (CDN_HOSTS.some((h) => url.hostname === h)) {
+    e.respondWith(
+      caches.match(e.request).then((cached) =>
+        cached || fetch(e.request).then((resp) => {
+          if (resp && resp.status === 200) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+          }
+          return resp;
+        })
+      )
+    );
+    return;
+  }
+
+  // Network-first for all local assets — always get the latest
   e.respondWith(
-    caches.match(e.request).then((cached) => {
-      // Network-first for navigation, cache-first for assets
-      if (e.request.mode === 'navigate') {
-        return fetch(e.request).catch(() => cached || caches.match('./index.html'));
+    fetch(e.request).then((resp) => {
+      if (resp && resp.status === 200) {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
       }
-      return cached || fetch(e.request).then((resp) => {
-        if (resp && resp.status === 200) {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
-        }
-        return resp;
-      });
-    })
+      return resp;
+    }).catch(() => caches.match(e.request).then((cached) =>
+      cached || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined)
+    ))
   );
 });
