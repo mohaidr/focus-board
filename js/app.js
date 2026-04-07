@@ -17,6 +17,7 @@ let dragSectionId   = null;
 let doneCollapsed      = false;
 let inProgressCollapsed = false;
 let todoCollapsed       = false;
+let sketchActive    = false;  // whether sketch canvas is currently shown in item modal
 let selectedColor      = COLORS[5];
 let selectedBoardType  = 'task';
 let sectionSearchTerm  = '';
@@ -242,7 +243,10 @@ function renderMain() {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
     for (const [iid, title, desc, link, completed, recurring, status] of rows) {
-      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid);
+      // Check if item has sketch data
+      const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
+      const sketchData = (sketchRes.length && sketchRes[0].values[0][0]) ? sketchRes[0].values[0][0] : null;
+      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid, sketchData);
     }
     html += '</div>';
     if (!searchTerm) {
@@ -331,21 +335,27 @@ function renderMain() {
 
 /* ── Reference Item HTML ── */
 
-function renderRefItem(iid, title, desc, link, isExpanded, sid) {
+function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
   const expandedCls = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
+  const hasSketch = sketchData ? '<span class="item-has-desc">🎨</span>' : '';
+  const icon = sketchData ? '🎨' : '📄';
 
   let detail = '';
   if (isExpanded) {
+    const sketchPreview = sketchData
+      ? `<div class="sketch-preview-large"><img src="${escAttr(sketchData)}" alt="Sketch" loading="lazy"></div>`
+      : '';
     detail = `
       <div class="item-detail">
         ${desc
           ? `<div class="item-detail-desc">${esc(desc)}</div>`
-          : '<div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">No description</div>'}
+          : (!sketchData ? '<div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">No description</div>' : '')}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
+        ${sketchPreview}
         <div class="item-detail-actions" style="margin-top:10px;">
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
@@ -354,7 +364,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid) {
   }
 
   return `
-    <div class="item ref-item ${expandedCls}" data-item-id="${iid}"
+    <div class="item ref-item ${sketchData ? 'sketch-item' : ''} ${expandedCls}" data-item-id="${iid}"
          draggable="true"
          ondragstart="onItemDragStart(event, ${iid})"
          ondragover="onItemDragOver(event, ${iid})"
@@ -362,9 +372,9 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid) {
          ondrop="onItemDrop(event, ${iid})">
       <div class="item-row" onclick="toggleExpand(${iid})">
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
-        <span class="ref-item-icon">📄</span>
+        <span class="ref-item-icon">${icon}</span>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${hasSketch}${hasDesc}${hasLink}</div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
@@ -865,19 +875,48 @@ function openItemModal(sectionId, editId) {
   const secInput   = document.getElementById('itemSectionId');
   secInput.value   = sectionId;
 
-  // Hide recurring toggle for reference boards
+  // Hide recurring toggle for reference boards, show sketch group
   const secType = db.exec('SELECT type FROM sections WHERE id = ?', [sectionId]);
   const isRef = secType.length && secType[0].values[0][0] === 'reference';
   document.getElementById('recurringGroup').style.display = isRef ? 'none' : '';
+  document.getElementById('sketchGroup').style.display = isRef ? '' : 'none';
+
+  // Reset sketch state
+  sketchActive = false;
+  document.getElementById('sketchCanvasSection').style.display = 'none';
+  document.getElementById('sketchToggleWrap').style.display = '';
+  document.getElementById('sketchToggleBtn').textContent = '\u270E Add sketch';
+
+  // Widen modal for reference boards (to fit canvas)
+  document.getElementById('itemModalInner').classList.toggle('item-modal-wide', isRef);
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
-    const row = db.exec('SELECT title, description, link, recurring FROM items WHERE id = ?', [editId]);
+    const row = db.exec('SELECT title, description, link, recurring, sketch_data FROM items WHERE id = ?', [editId]);
     if (row.length) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
       linkInput.value  = row[0].values[0][2] || '';
       document.getElementById('itemRecurring').checked = !!row[0].values[0][3];
+
+      // If item has sketch data, show the canvas with the sketch loaded
+      if (isRef && row[0].values[0][4]) {
+        sketchActive = true;
+        document.getElementById('sketchCanvasSection').style.display = '';
+        document.getElementById('sketchToggleWrap').style.display = 'none';
+        // Canvas init after modal is visible
+        requestAnimationFrame(() => {
+          initSketchCanvas();
+          const imgData = row[0].values[0][4];
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.getElementById('sketchCanvas');
+            const dpr = window.devicePixelRatio || 1;
+            sketchCtx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
+          };
+          img.src = imgData;
+        });
+      }
     }
     editInput.value = editId;
   } else {
@@ -891,6 +930,42 @@ function openItemModal(sectionId, editId) {
 
   modal.classList.add('active');
   titleInput.focus();
+}
+
+function toggleSketchCanvas() {
+  sketchActive = true;
+  document.getElementById('sketchCanvasSection').style.display = '';
+  document.getElementById('sketchToggleWrap').style.display = 'none';
+  requestAnimationFrame(() => initSketchCanvas());
+}
+
+function removeSketch() {
+  sketchActive = false;
+  // Clear and hide canvas
+  const canvas = document.getElementById('sketchCanvas');
+  const newCanvas = canvas.cloneNode(true);
+  canvas.parentNode.replaceChild(newCanvas, canvas);
+  sketchHistory = [];
+  sketchDrawing = false;
+  sketchLastPoint = null;
+  sketchCtx = null;
+  document.getElementById('sketchCanvasSection').style.display = 'none';
+  document.getElementById('sketchToggleWrap').style.display = '';
+}
+
+function closeItemModal() {
+  // Clean up canvas if active
+  if (sketchActive) {
+    const canvas = document.getElementById('sketchCanvas');
+    const newCanvas = canvas.cloneNode(true);
+    canvas.parentNode.replaceChild(newCanvas, canvas);
+    sketchHistory = [];
+    sketchDrawing = false;
+    sketchLastPoint = null;
+    sketchCtx = null;
+    sketchActive = false;
+  }
+  closeModal('itemModal');
 }
 
 function saveItem() {
@@ -907,17 +982,31 @@ function saveItem() {
     return;
   }
 
+  // Get sketch data if canvas is active
+  let sketchDataURL = null;
+  if (sketchActive && sketchCtx) {
+    const canvas = document.getElementById('sketchCanvas');
+    const pixels = sketchCtx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let isBlank = true;
+    for (let i = 3; i < pixels.length; i += 4) {
+      if (pixels[i] !== 0) { isBlank = false; break; }
+    }
+    if (!isBlank) {
+      sketchDataURL = canvas.toDataURL('image/png');
+    }
+  }
+
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ? WHERE id = ?',
-      [title, desc, link, recurring, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL]);
   }
 
   persist();
-  closeModal('itemModal');
+  closeItemModal();
   renderSidebar();
   renderMain();
   toast(editId ? 'Item updated' : 'Item added');
@@ -1053,17 +1142,27 @@ function saveSettings() {
 
 // Close modals on overlay click
 document.addEventListener('click', (e) => {
-  if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active');
+  if (e.target.classList.contains('modal-overlay')) {
+    if (e.target.id === 'itemModal') { closeItemModal(); return; }
+    e.target.classList.remove('active');
+  }
 });
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    const itemModal = document.getElementById('itemModal');
+    if (itemModal.classList.contains('active')) { closeItemModal(); return; }
     document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
   }
   if (e.ctrlKey && e.key === 'k') {
     e.preventDefault();
     document.getElementById('searchBox').focus();
+  }
+  // Ctrl+Z for sketch undo when sketch canvas is active in item modal
+  if (e.ctrlKey && e.key === 'z' && sketchActive && document.getElementById('itemModal').classList.contains('active')) {
+    e.preventDefault();
+    sketchUndo();
   }
 });
 
@@ -1076,6 +1175,145 @@ document.addEventListener('dragend', () => {
   dragItemId    = null;
   dragSectionId = null;
 });
+
+
+/* ================================================================
+   Sketch – Drawing Engine (Pointer Events + Pressure)
+   ================================================================ */
+
+let sketchCtx       = null;
+let sketchDrawing   = false;
+let sketchTool      = 'pen';   // 'pen' | 'eraser'
+let sketchSize      = 3;
+let sketchHistory   = [];      // array of ImageData snapshots for undo
+let sketchLastPoint = null;
+
+function initSketchCanvas() {
+  const canvas = document.getElementById('sketchCanvas');
+  sketchCtx = canvas.getContext('2d');
+
+  // Size canvas to fit container
+  const wrap = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth;
+  const h = Math.max(340, Math.min(500, window.innerHeight * 0.45));
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  sketchCtx.scale(dpr, dpr);
+
+  // Default state
+  sketchCtx.lineCap = 'round';
+  sketchCtx.lineJoin = 'round';
+  sketchHistory = [];
+
+  // Pointer events
+  canvas.addEventListener('pointerdown', sketchPointerDown);
+  canvas.addEventListener('pointermove', sketchPointerMove);
+  canvas.addEventListener('pointerup', sketchPointerUp);
+  canvas.addEventListener('pointerleave', sketchPointerUp);
+
+  // Prevent scrolling while drawing on touch
+  canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+  canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+}
+
+function getSketchPos(e) {
+  const canvas = document.getElementById('sketchCanvas');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+    pressure: e.pressure || 0.5
+  };
+}
+
+function sketchPointerDown(e) {
+  e.preventDefault();
+  sketchDrawing = true;
+  sketchLastPoint = getSketchPos(e);
+
+  // Save snapshot for undo
+  const canvas = document.getElementById('sketchCanvas');
+  sketchHistory.push(sketchCtx.getImageData(0, 0, canvas.width, canvas.height));
+  // Limit history to 50 steps
+  if (sketchHistory.length > 50) sketchHistory.shift();
+
+  // Begin path with a dot
+  sketchCtx.beginPath();
+  if (sketchTool === 'eraser') {
+    sketchCtx.globalCompositeOperation = 'destination-out';
+    sketchCtx.lineWidth = sketchSize * 6;
+  } else {
+    sketchCtx.globalCompositeOperation = 'source-over';
+    sketchCtx.strokeStyle = '#e0e4ee';
+    const pressure = sketchLastPoint.pressure;
+    sketchCtx.lineWidth = sketchSize * (0.5 + pressure * 1.5);
+  }
+  sketchCtx.moveTo(sketchLastPoint.x, sketchLastPoint.y);
+  sketchCtx.lineTo(sketchLastPoint.x + 0.1, sketchLastPoint.y + 0.1);
+  sketchCtx.stroke();
+
+  // Capture pointer for reliable tracking even outside canvas
+  document.getElementById('sketchCanvas').setPointerCapture(e.pointerId);
+}
+
+function sketchPointerMove(e) {
+  if (!sketchDrawing) return;
+  e.preventDefault();
+  const pos = getSketchPos(e);
+
+  sketchCtx.beginPath();
+  if (sketchTool === 'eraser') {
+    sketchCtx.globalCompositeOperation = 'destination-out';
+    sketchCtx.lineWidth = sketchSize * 6;
+  } else {
+    sketchCtx.globalCompositeOperation = 'source-over';
+    sketchCtx.strokeStyle = '#e0e4ee';
+    const pressure = pos.pressure;
+    sketchCtx.lineWidth = sketchSize * (0.5 + pressure * 1.5);
+  }
+
+  // Smooth: draw from midpoint of last two points for Bézier-like smoothness
+  const mx = (sketchLastPoint.x + pos.x) / 2;
+  const my = (sketchLastPoint.y + pos.y) / 2;
+  sketchCtx.moveTo(sketchLastPoint.x, sketchLastPoint.y);
+  sketchCtx.quadraticCurveTo(sketchLastPoint.x, sketchLastPoint.y, mx, my);
+  sketchCtx.stroke();
+
+  sketchLastPoint = pos;
+}
+
+function sketchPointerUp(e) {
+  if (!sketchDrawing) return;
+  sketchDrawing = false;
+  sketchLastPoint = null;
+  sketchCtx.globalCompositeOperation = 'source-over';
+}
+
+function setSketchTool(tool) {
+  sketchTool = tool;
+  document.getElementById('sketchToolPen').classList.toggle('active', tool === 'pen');
+  document.getElementById('sketchToolEraser').classList.toggle('active', tool === 'eraser');
+}
+
+function updateSketchSize() {
+  sketchSize = parseInt(document.getElementById('sketchSize').value);
+}
+
+function sketchUndo() {
+  if (!sketchHistory.length) return;
+  const canvas = document.getElementById('sketchCanvas');
+  const img = sketchHistory.pop();
+  sketchCtx.putImageData(img, 0, 0);
+}
+
+function sketchClear() {
+  const canvas = document.getElementById('sketchCanvas');
+  sketchHistory.push(sketchCtx.getImageData(0, 0, canvas.width, canvas.height));
+  sketchCtx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+}
 
 
 /* ================================================================

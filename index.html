@@ -96,7 +96,7 @@
 
 <!--  Item Modal  -->
 <div class="modal-overlay" id="itemModal">
-  <div class="modal">
+  <div class="modal" id="itemModalInner">
     <h2 id="itemModalTitle">New Item</h2>
     <input type="hidden" id="editItemId">
     <input type="hidden" id="itemSectionId">
@@ -121,8 +121,28 @@
       </label>
       <div class="form-hint">When marked done, this task resets to active each morning</div>
     </div>
+    <!-- Sketch section (reference boards only) -->
+    <div class="form-group" id="sketchGroup" style="display:none;">
+      <label>Sketch (optional)</label>
+      <div id="sketchToggleWrap">
+        <button class="btn btn-ghost btn-sm" id="sketchToggleBtn" onclick="toggleSketchCanvas()" type="button">&#9998; Add sketch</button>
+      </div>
+      <div id="sketchCanvasSection" style="display:none;">
+        <div class="sketch-toolbar">
+          <button class="sketch-tool active" id="sketchToolPen" onclick="setSketchTool('pen')" title="Pen" type="button">&#9998;</button>
+          <button class="sketch-tool" id="sketchToolEraser" onclick="setSketchTool('eraser')" title="Eraser" type="button">&#9003;</button>
+          <input type="range" id="sketchSize" min="1" max="12" value="3" class="sketch-size-slider" oninput="updateSketchSize()" title="Pen size">
+          <button class="sketch-tool" onclick="sketchUndo()" title="Undo" type="button">&#8630;</button>
+          <button class="sketch-tool" onclick="sketchClear()" title="Clear all" type="button">&#128465;</button>
+          <button class="sketch-tool sketch-tool-remove" onclick="removeSketch()" title="Remove sketch" type="button">&#10005;</button>
+        </div>
+        <div class="sketch-canvas-wrap">
+          <canvas id="sketchCanvas" width="800" height="400"></canvas>
+        </div>
+      </div>
+    </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal('itemModal')">Cancel</button>
+      <button class="btn btn-ghost" onclick="closeItemModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveItem()">Save</button>
     </div>
   </div>

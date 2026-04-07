@@ -104,6 +104,13 @@ function createTables() {
     // Mark existing boards that have a custom sort_order as prioritized
     db.run('UPDATE sections SET prioritized = 1 WHERE sort_order > 0');
   }
+
+  // Migration: add sketch_data column for sketch items (stores base64 PNG)
+  try {
+    db.exec('SELECT sketch_data FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN sketch_data TEXT DEFAULT NULL');
+  }
 }
 
 // ── Seed Data ──
