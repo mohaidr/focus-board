@@ -1193,7 +1193,7 @@ body {
    Sketch Canvas (embedded in Item Modal)
    ================================================================ */
 .item-modal-wide {
-  width: 700px;
+  width: 900px;
   max-width: 95vw;
 }
 

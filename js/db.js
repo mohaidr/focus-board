@@ -199,10 +199,19 @@ async function initDB() {
 
   persist();
 
-  // Select first section by default
-  const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
-  if (first.length && first[0].values.length) {
-    activeSectionId = first[0].values[0][0];
+  // Restore last active section, or fall back to first
+  const savedSection = parseInt(localStorage.getItem('dashora_active_section'));
+  if (savedSection) {
+    const exists = db.exec('SELECT id FROM sections WHERE id = ?', [savedSection]);
+    if (exists.length && exists[0].values.length) {
+      activeSectionId = savedSection;
+    }
+  }
+  if (!activeSectionId) {
+    const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
+    if (first.length && first[0].values.length) {
+      activeSectionId = first[0].values[0][0];
+    }
   }
 
   renderSidebar();

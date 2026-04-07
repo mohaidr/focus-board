@@ -576,6 +576,7 @@ function toggleKanbanCol(col) {
 
 function selectSection(id) {
   activeSectionId = id;
+  localStorage.setItem('dashora_active_section', id);
   expandedItems.clear();
   sectionSearchTerm = '';
   renderSidebar();
@@ -1375,49 +1376,54 @@ function sketchPointerDown(e) {
   // Limit history to 50 steps
   if (sketchHistory.length > 50) sketchHistory.shift();
 
-  // Begin path with a dot
-  sketchCtx.beginPath();
+  // Set up stroke style for this entire stroke
   if (sketchTool === 'eraser') {
     sketchCtx.globalCompositeOperation = 'destination-out';
     sketchCtx.lineWidth = sketchSize * 6;
+    sketchCtx.fillStyle = '#000';
   } else {
     sketchCtx.globalCompositeOperation = 'source-over';
     sketchCtx.strokeStyle = '#e0e4ee';
-    const pressure = sketchLastPoint.pressure;
-    sketchCtx.lineWidth = sketchSize * (0.5 + pressure * 1.5);
+    sketchCtx.fillStyle = '#e0e4ee';
+    sketchCtx.lineWidth = sketchSize * (0.5 + (sketchLastPoint.pressure) * 1.5);
   }
-  sketchCtx.moveTo(sketchLastPoint.x, sketchLastPoint.y);
-  sketchCtx.lineTo(sketchLastPoint.x + 0.1, sketchLastPoint.y + 0.1);
-  sketchCtx.stroke();
+
+  // Draw a dot at the start point
+  sketchCtx.beginPath();
+  sketchCtx.arc(sketchLastPoint.x, sketchLastPoint.y, sketchCtx.lineWidth / 2, 0, Math.PI * 2);
+  sketchCtx.fill();
 
   // Capture pointer for reliable tracking even outside canvas
-  document.getElementById('sketchCanvas').setPointerCapture(e.pointerId);
+  canvas.setPointerCapture(e.pointerId);
 }
 
 function sketchPointerMove(e) {
   if (!sketchDrawing) return;
   e.preventDefault();
-  const pos = getSketchPos(e);
 
-  sketchCtx.beginPath();
-  if (sketchTool === 'eraser') {
-    sketchCtx.globalCompositeOperation = 'destination-out';
-    sketchCtx.lineWidth = sketchSize * 6;
-  } else {
-    sketchCtx.globalCompositeOperation = 'source-over';
-    sketchCtx.strokeStyle = '#e0e4ee';
-    const pressure = pos.pressure;
-    sketchCtx.lineWidth = sketchSize * (0.5 + pressure * 1.5);
+  // Use coalesced events for smooth high-frequency pen input
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+
+  for (const ce of events) {
+    const pos = getSketchPos(ce);
+
+    if (sketchTool === 'eraser') {
+      sketchCtx.globalCompositeOperation = 'destination-out';
+      sketchCtx.lineWidth = sketchSize * 6;
+    } else {
+      sketchCtx.globalCompositeOperation = 'source-over';
+      sketchCtx.strokeStyle = '#e0e4ee';
+      sketchCtx.lineWidth = sketchSize * (0.5 + pos.pressure * 1.5);
+    }
+
+    // Draw a line from last point to current point
+    sketchCtx.beginPath();
+    sketchCtx.moveTo(sketchLastPoint.x, sketchLastPoint.y);
+    sketchCtx.lineTo(pos.x, pos.y);
+    sketchCtx.stroke();
+
+    sketchLastPoint = pos;
   }
-
-  // Smooth: draw from midpoint of last two points for Bézier-like smoothness
-  const mx = (sketchLastPoint.x + pos.x) / 2;
-  const my = (sketchLastPoint.y + pos.y) / 2;
-  sketchCtx.moveTo(sketchLastPoint.x, sketchLastPoint.y);
-  sketchCtx.quadraticCurveTo(sketchLastPoint.x, sketchLastPoint.y, mx, my);
-  sketchCtx.stroke();
-
-  sketchLastPoint = pos;
 }
 
 function sketchPointerUp(e) {
