@@ -54,6 +54,73 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
+function formatDueDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const hours = d.getHours();
+  const mins = d.getMinutes();
+  if (hours === 0 && mins === 0) {
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  }
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h = hours % 12 || 12;
+  const m = mins.toString().padStart(2, '0');
+  return `${months[d.getMonth()]} ${d.getDate()}, ${h}:${m} ${ampm}`;
+}
+
+function clearDueDate() {
+  document.getElementById('itemDueDate').value = '';
+  document.getElementById('dueDateClearBtn').style.display = 'none';
+}
+
+function addToCalendar(event, id) {
+  event.stopPropagation();
+  const row = db.exec('SELECT title, description, due_date FROM items WHERE id = ?', [id]);
+  if (!row.length || !row[0].values[0][2]) { toast('No due date set'); return; }
+
+  const [title, desc, dueDate] = row[0].values[0];
+  const due = new Date(dueDate);
+  const dtStart = due.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  // Event lasts 1 hour
+  const endDate = new Date(due.getTime() + 3600000);
+  const dtEnd = endDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Dashora//EN',
+    'BEGIN:VEVENT',
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `DTSTAMP:${now}`,
+    `UID:dashora-${id}-${Date.now()}@dashora`,
+    `SUMMARY:${icsEscape(title)}`,
+    desc ? `DESCRIPTION:${icsEscape(desc)}` : '',
+    'BEGIN:VALARM',
+    'TRIGGER:-PT15M',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${icsEscape(title)} is due`,
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].filter(Boolean).join('\r\n');
+
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dashora-${title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-')}.ics`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Calendar event downloaded');
+}
+
+function icsEscape(str) {
+  if (!str) return '';
+  return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
 
 /* ================================================================
    Sidebar Rendering
@@ -210,7 +277,7 @@ function renderMain() {
   let itemsRes;
   if (searchTerm) {
     itemsRes = db.exec(
-      `SELECT id, title, description, link, completed, recurring, status
+      `SELECT id, title, description, link, completed, recurring, status, due_date
        FROM items
        WHERE section_id = ?
          AND (LOWER(title) LIKE '%' || ? || '%' OR LOWER(description) LIKE '%' || ? || '%')
@@ -218,7 +285,7 @@ function renderMain() {
       [sid, searchTerm, searchTerm]
     );
   } else {
-    itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
+    itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status, due_date FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
   }
   let rows = itemsRes.length ? itemsRes[0].values : [];
 
@@ -242,7 +309,7 @@ function renderMain() {
   if (boardType === 'reference') {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
-    for (const [iid, title, desc, link, completed, recurring, status] of rows) {
+    for (const [iid, title, desc, link, completed, recurring, status, dueDate] of rows) {
       // Check if item has sketch data
       const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
       const sketchData = (sketchRes.length && sketchRes[0].values[0][0]) ? sketchRes[0].values[0][0] : null;
@@ -274,8 +341,8 @@ function renderMain() {
       </div>`;
     if (!todoCollapsed) {
       html += '<div class="kanban-column-body" id="itemList">';
-      for (const [iid, title, desc, link, completed, recurring, status] of todoRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate] of todoRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
       }
       html += '</div>';
       if (!searchTerm) {
@@ -298,8 +365,8 @@ function renderMain() {
       </div>`;
     if (!inProgressCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status] of ipRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate] of ipRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
       }
       html += '</div>';
     }
@@ -319,8 +386,8 @@ function renderMain() {
       </div>`;
     if (!doneCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status] of doneRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate] of doneRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
       }
       html += '</div>';
     }
@@ -384,13 +451,34 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
 
 /* ── Single Item HTML ── */
 
-function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid) {
+function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid, dueDate) {
   const st = status || 0; // 0=todo, 1=in-progress, 2=done
   const statusCls  = st === 2 ? 'status-done' : st === 1 ? 'status-ip' : 'status-todo';
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
   const recurBadge = recurring ? '<span class="item-recurring" title="Recurring daily">&#128260;</span>' : '';
+
+  // Due date badge
+  let dueBadge = '';
+  if (dueDate && st !== 2) {
+    const now = new Date();
+    const due = new Date(dueDate);
+    const diffMs = due - now;
+    const diffHours = diffMs / 3600000;
+    if (diffMs < 0) {
+      const overdueDays = Math.ceil(Math.abs(diffMs) / 86400000);
+      dueBadge = `<span class="due-badge due-overdue" title="Overdue">&#128308; ${formatDueDate(dueDate)}</span>`;
+    } else if (diffHours <= 24) {
+      dueBadge = `<span class="due-badge due-today" title="Due within 24h">&#128992; ${formatDueDate(dueDate)}</span>`;
+    } else if (diffHours <= 72) {
+      dueBadge = `<span class="due-badge due-soon" title="Due soon">${formatDueDate(dueDate)}</span>`;
+    } else {
+      dueBadge = `<span class="due-badge">${formatDueDate(dueDate)}</span>`;
+    }
+  } else if (dueDate && st === 2) {
+    dueBadge = `<span class="due-badge due-done">${formatDueDate(dueDate)}</span>`;
+  }
 
   // Checkbox appearance based on status
   let checkboxCls = '';
@@ -429,6 +517,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
           <div class="item-detail-actions">
             <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
             ${recurBtn}
+            ${dueDate ? `<button class="btn btn-ghost btn-sm" onclick="addToCalendar(event, ${iid})">&#128197; Add to Calendar</button>` : ''}
             <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
           </div>
         </div>
@@ -446,7 +535,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${recurBadge}${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${dueBadge}${recurBadge}${hasDesc}${hasLink}</div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
@@ -678,7 +767,7 @@ function renderSearchResults(term) {
 
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
-           i.recurring, i.section_id, s.name, s.color, i.status
+           i.recurring, i.section_id, s.name, s.color, i.status, i.due_date
     FROM items i
     JOIN sections s ON i.section_id = s.id
     WHERE LOWER(i.title) LIKE '%' || ? || '%'
@@ -703,7 +792,7 @@ function renderSearchResults(term) {
   let html = '';
   let currentSection = null;
 
-  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status] of rows) {
+  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status, dueDate] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -713,7 +802,7 @@ function renderSearchResults(term) {
           <span style="font-size:13px;font-weight:600;color:var(--text-muted)">${esc(secName)}</span>
         </div>`;
     }
-    html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId);
+    html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate);
   }
 
   body.innerHTML = html;
@@ -875,10 +964,11 @@ function openItemModal(sectionId, editId) {
   const secInput   = document.getElementById('itemSectionId');
   secInput.value   = sectionId;
 
-  // Hide recurring toggle for reference boards, show sketch group
+  // Hide recurring toggle and due date for reference boards, show sketch group
   const secType = db.exec('SELECT type FROM sections WHERE id = ?', [sectionId]);
   const isRef = secType.length && secType[0].values[0][0] === 'reference';
   document.getElementById('recurringGroup').style.display = isRef ? 'none' : '';
+  document.getElementById('dueDateGroup').style.display = isRef ? 'none' : '';
   document.getElementById('sketchGroup').style.display = isRef ? '' : 'none';
 
   // Reset sketch state
@@ -892,12 +982,17 @@ function openItemModal(sectionId, editId) {
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
-    const row = db.exec('SELECT title, description, link, recurring, sketch_data FROM items WHERE id = ?', [editId]);
+    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date FROM items WHERE id = ?', [editId]);
     if (row.length) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
       linkInput.value  = row[0].values[0][2] || '';
       document.getElementById('itemRecurring').checked = !!row[0].values[0][3];
+
+      // Due date
+      const dueVal = row[0].values[0][5] || '';
+      document.getElementById('itemDueDate').value = dueVal;
+      document.getElementById('dueDateClearBtn').style.display = dueVal ? '' : 'none';
 
       // If item has sketch data, show the canvas with the sketch loaded
       if (isRef && row[0].values[0][4]) {
@@ -926,6 +1021,8 @@ function openItemModal(sectionId, editId) {
     linkInput.value  = '';
     editInput.value  = '';
     document.getElementById('itemRecurring').checked = false;
+    document.getElementById('itemDueDate').value = '';
+    document.getElementById('dueDateClearBtn').style.display = 'none';
   }
 
   modal.classList.add('active');
@@ -982,6 +1079,8 @@ function saveItem() {
     return;
   }
 
+  const dueDate = document.getElementById('itemDueDate').value || null;
+
   // Get sketch data if canvas is active
   let sketchDataURL = null;
   if (sketchActive && sketchCtx) {
@@ -997,12 +1096,12 @@ function saveItem() {
   }
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ? WHERE id = ?',
-      [title, desc, link, recurring, sketchDataURL, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, dueDate, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate]);
   }
 
   persist();
@@ -1111,10 +1210,12 @@ function importData(event) {
 function openSettingsModal() {
   const enabled = localStorage.getItem('dashora_autodelete_enabled') === 'true';
   const days = localStorage.getItem('dashora_autodelete_days') || '7';
+  const notifEnabled = localStorage.getItem('dashora_notifications') === 'true';
 
   document.getElementById('autoDeleteEnabled').checked = enabled;
   document.getElementById('autoDeleteDays').value = days;
   document.getElementById('autoDeleteDelayGroup').style.display = enabled ? '' : 'none';
+  document.getElementById('notificationsEnabled').checked = notifEnabled;
 
   // Toggle visibility when checkbox changes
   document.getElementById('autoDeleteEnabled').onchange = function () {
@@ -1127,12 +1228,39 @@ function openSettingsModal() {
 function saveSettings() {
   const enabled = document.getElementById('autoDeleteEnabled').checked;
   const days = document.getElementById('autoDeleteDays').value;
+  const notifEnabled = document.getElementById('notificationsEnabled').checked;
 
   localStorage.setItem('dashora_autodelete_enabled', enabled ? 'true' : 'false');
   localStorage.setItem('dashora_autodelete_days', days);
 
+  // Handle notification permission
+  if (notifEnabled) {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(perm => {
+        if (perm === 'granted') {
+          localStorage.setItem('dashora_notifications', 'true');
+          toast('Reminders enabled');
+          checkDueDateNotifications();
+        } else {
+          localStorage.setItem('dashora_notifications', 'false');
+          document.getElementById('notificationsEnabled').checked = false;
+          toast('Notification permission denied');
+        }
+      });
+    } else if ('Notification' in window && Notification.permission === 'granted') {
+      localStorage.setItem('dashora_notifications', 'true');
+    } else {
+      localStorage.setItem('dashora_notifications', 'false');
+      toast('Notifications not supported');
+    }
+  } else {
+    localStorage.setItem('dashora_notifications', 'false');
+  }
+
   closeModal('settingsModal');
-  toast(enabled ? `Auto-delete: after ${days} day${days !== '1' ? 's' : ''}` : 'Auto-delete disabled');
+  if (!notifEnabled || Notification.permission === 'granted') {
+    toast(enabled ? `Auto-delete: after ${days} day${days !== '1' ? 's' : ''}` : 'Settings saved');
+  }
 }
 
 
@@ -1174,6 +1302,13 @@ document.addEventListener('dragend', () => {
   });
   dragItemId    = null;
   dragSectionId = null;
+});
+
+// Due date clear button visibility
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'itemDueDate') {
+    document.getElementById('dueDateClearBtn').style.display = e.target.value ? '' : 'none';
+  }
 });
 
 
@@ -1314,6 +1449,63 @@ function sketchClear() {
   sketchHistory.push(sketchCtx.getImageData(0, 0, canvas.width, canvas.height));
   sketchCtx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
 }
+
+
+/* ================================================================
+   Due Date Notifications
+   ================================================================ */
+
+function checkDueDateNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (localStorage.getItem('dashora_notifications') !== 'true') return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lastNotif = localStorage.getItem('dashora_last_notif_date');
+  if (lastNotif === today) return; // Already notified today
+
+  // Find overdue + due-today tasks (not done)
+  const res = db.exec(`
+    SELECT i.title, i.due_date, s.name
+    FROM items i
+    JOIN sections s ON i.section_id = s.id
+    WHERE i.due_date IS NOT NULL
+      AND i.due_date <= datetime('now', '+24 hours')
+      AND i.status < 2
+    ORDER BY i.due_date
+  `);
+
+  if (!res.length || !res[0].values.length) return;
+
+  const rows = res[0].values;
+  const now = new Date().toISOString();
+  const overdue = rows.filter(r => r[1] < now);
+  const dueSoon = rows.filter(r => r[1] >= now);
+
+  let body = '';
+  if (dueSoon.length) {
+    body += `Due soon: ${dueSoon.map(r => r[0]).join(', ')}`;
+  }
+  if (overdue.length) {
+    if (body) body += '\n';
+    body += `Overdue: ${overdue.map(r => r[0]).join(', ')}`;
+  }
+
+  if (body) {
+    new Notification('Dashora – Task Reminders', {
+      body: body,
+      icon: 'icons/icon-192.svg',
+      tag: 'dashora-due-' + today,
+    });
+  }
+
+  localStorage.setItem('dashora_last_notif_date', today);
+}
+
+// Periodic check every 30 minutes while app is open
+setInterval(() => {
+  if (db) checkDueDateNotifications();
+}, 30 * 60 * 1000);
 
 
 /* ================================================================

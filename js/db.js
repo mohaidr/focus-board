@@ -111,6 +111,13 @@ function createTables() {
   } catch (e) {
     db.run('ALTER TABLE items ADD COLUMN sketch_data TEXT DEFAULT NULL');
   }
+
+  // Migration: add due_date column for planned completion date (YYYY-MM-DD)
+  try {
+    db.exec('SELECT due_date FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN due_date TEXT DEFAULT NULL');
+  }
 }
 
 // ── Seed Data ──
@@ -200,4 +207,7 @@ async function initDB() {
 
   renderSidebar();
   renderMain();
+
+  // Check for due date notifications
+  checkDueDateNotifications();
 }

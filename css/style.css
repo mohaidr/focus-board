@@ -1129,6 +1129,67 @@ body {
 
 
 /* ================================================================
+   Due Date
+   ================================================================ */
+.due-date-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.due-date-input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color-scheme: dark;
+}
+.due-date-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.due-date-clear {
+  flex-shrink: 0;
+}
+
+/* Due date badges on cards */
+.due-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.due-badge.due-overdue {
+  color: var(--danger);
+  background: rgba(240, 104, 120, 0.12);
+  font-weight: 600;
+}
+.due-badge.due-today {
+  color: var(--warning);
+  background: rgba(240, 168, 94, 0.12);
+  font-weight: 600;
+}
+.due-badge.due-soon {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+.due-badge.due-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+
+/* ================================================================
    Sketch Canvas (embedded in Item Modal)
    ================================================================ */
 .item-modal-wide {

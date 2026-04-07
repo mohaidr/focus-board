@@ -121,6 +121,13 @@
       </label>
       <div class="form-hint">When marked done, this task resets to active each morning</div>
     </div>
+    <div class="form-group" id="dueDateGroup">
+      <label>Due Date (optional)</label>
+      <div class="due-date-input-wrap">
+        <input type="datetime-local" id="itemDueDate" class="due-date-input">
+        <button class="btn btn-ghost btn-sm due-date-clear" id="dueDateClearBtn" onclick="clearDueDate()" type="button" style="display:none">&#10005;</button>
+      </div>
+    </div>
     <!-- Sketch section (reference boards only) -->
     <div class="form-group" id="sketchGroup" style="display:none;">
       <label>Sketch (optional)</label>
@@ -152,6 +159,14 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h2>Settings</h2>
+    <div class="form-group form-group-inline">
+      <label class="toggle-label">
+        <input type="checkbox" id="notificationsEnabled">
+        <span class="toggle-slider"></span>
+        <span>Due date reminders</span>
+      </label>
+      <div class="form-hint">Get notified when tasks are due today or overdue</div>
+    </div>
     <div class="form-group form-group-inline">
       <label class="toggle-label">
         <input type="checkbox" id="autoDeleteEnabled">
