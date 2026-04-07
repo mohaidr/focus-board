@@ -457,7 +457,8 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
-  const recurBadge = recurring ? '<span class="item-recurring" title="Recurring daily">&#128260;</span>' : '';
+  const recurLabels = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly' };
+  const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${recurLabels[recurring] || ''}">${recurLabels[recurring] || '\u{1F501}'}</span>` : '';
 
   // Due date badge
   let dueBadge = '';
@@ -488,9 +489,13 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
 
   let detail = '';
   if (isExpanded) {
-    const recurBtn = recurring
-      ? `<button class="btn btn-ghost btn-sm btn-recurring-active" onclick="toggleRecurring(event, ${iid})">&#128260; Recurring</button>`
-      : `<button class="btn btn-ghost btn-sm" onclick="toggleRecurring(event, ${iid})">&#128260; Set Recurring</button>`;
+    const recurSelect = `<select class="recurring-select" onchange="setRecurring(event, ${iid}, this.value)">
+        <option value="0" ${!recurring ? 'selected' : ''}>Not recurring</option>
+        <option value="1" ${recurring===1 ? 'selected' : ''}>&#128260; Daily</option>
+        <option value="2" ${recurring===2 ? 'selected' : ''}>&#128260; Weekly</option>
+        <option value="3" ${recurring===3 ? 'selected' : ''}>&#128260; Biweekly</option>
+        <option value="4" ${recurring===4 ? 'selected' : ''}>&#128260; Monthly</option>
+      </select>`;
 
     // Status buttons
     const statusBtns = `
@@ -516,7 +521,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
           </div>
           <div class="item-detail-actions">
             <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
-            ${recurBtn}
+            ${recurSelect}
             ${dueDate ? `<button class="btn btn-ghost btn-sm" onclick="addToCalendar(event, ${iid})">&#128197; Add to Calendar</button>` : ''}
             <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
           </div>
@@ -855,11 +860,23 @@ function setStatus(event, id, status) {
 function toggleRecurring(event, id) {
   event.stopPropagation();
   const row = db.exec('SELECT recurring FROM items WHERE id = ?', [id]);
-  const newVal = row[0].values[0][0] ? 0 : 1;
-  db.run('UPDATE items SET recurring = ? WHERE id = ?', [newVal, id]);
+  const cur = row[0].values[0][0] || 0;
+  const next = (cur + 1) % 5;
+  db.run('UPDATE items SET recurring = ? WHERE id = ?', [next, id]);
   persist();
   renderMain();
-  toast(newVal ? 'Set as recurring' : 'No longer recurring');
+  const labels = { 0: 'Recurring off', 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly' };
+  toast(labels[next]);
+}
+
+function setRecurring(event, id, value) {
+  event.stopPropagation();
+  const val = parseInt(value) || 0;
+  db.run('UPDATE items SET recurring = ? WHERE id = ?', [val, id]);
+  persist();
+  renderMain();
+  const labels = { 0: 'Recurring off', 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly' };
+  toast(labels[val]);
 }
 
 
@@ -988,7 +1005,7 @@ function openItemModal(sectionId, editId) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
       linkInput.value  = row[0].values[0][2] || '';
-      document.getElementById('itemRecurring').checked = !!row[0].values[0][3];
+      document.getElementById('itemRecurring').value = row[0].values[0][3] || 0;
 
       // Due date
       const dueVal = row[0].values[0][5] || '';
@@ -1021,7 +1038,7 @@ function openItemModal(sectionId, editId) {
     descInput.value  = '';
     linkInput.value  = '';
     editInput.value  = '';
-    document.getElementById('itemRecurring').checked = false;
+    document.getElementById('itemRecurring').value = 0;
     document.getElementById('itemDueDate').value = '';
     document.getElementById('dueDateClearBtn').style.display = 'none';
   }
@@ -1070,7 +1087,7 @@ function saveItem() {
   const title     = document.getElementById('itemTitle').value.trim();
   const desc      = document.getElementById('itemDesc').value.trim();
   const link      = document.getElementById('itemLink').value.trim();
-  const recurring = document.getElementById('itemRecurring').checked ? 1 : 0;
+  const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
   const editId    = document.getElementById('editItemId').value;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
 
@@ -1233,34 +1250,16 @@ function saveSettings() {
 
   localStorage.setItem('dashora_autodelete_enabled', enabled ? 'true' : 'false');
   localStorage.setItem('dashora_autodelete_days', days);
-
-  // Handle notification permission
-  if (notifEnabled) {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(perm => {
-        if (perm === 'granted') {
-          localStorage.setItem('dashora_notifications', 'true');
-          toast('Reminders enabled');
-          checkDueDateNotifications();
-        } else {
-          localStorage.setItem('dashora_notifications', 'false');
-          document.getElementById('notificationsEnabled').checked = false;
-          toast('Notification permission denied');
-        }
-      });
-    } else if ('Notification' in window && Notification.permission === 'granted') {
-      localStorage.setItem('dashora_notifications', 'true');
-    } else {
-      localStorage.setItem('dashora_notifications', 'false');
-      toast('Notifications not supported');
-    }
-  } else {
-    localStorage.setItem('dashora_notifications', 'false');
-  }
+  localStorage.setItem('dashora_notifications', notifEnabled ? 'true' : 'false');
 
   closeModal('settingsModal');
-  if (!notifEnabled || Notification.permission === 'granted') {
-    toast(enabled ? `Auto-delete: after ${days} day${days !== '1' ? 's' : ''}` : 'Settings saved');
+  toast('Settings saved');
+
+  // Show or hide reminder banner immediately
+  if (notifEnabled) {
+    checkDueDateNotifications();
+  } else {
+    document.getElementById('reminderBanners').innerHTML = '';
   }
 }
 
@@ -1462,56 +1461,55 @@ function sketchClear() {
    ================================================================ */
 
 function checkDueDateNotifications() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
   if (localStorage.getItem('dashora_notifications') !== 'true') return;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const lastNotif = localStorage.getItem('dashora_last_notif_date');
-  if (lastNotif === today) return; // Already notified today
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const localNow = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const tom = new Date(now.getTime() + 86400000);
+  const localTomorrow = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}T${pad(tom.getHours())}:${pad(tom.getMinutes())}`;
 
-  // Find overdue + due-today tasks (not done)
-  const res = db.exec(`
-    SELECT i.title, i.due_date, s.name
-    FROM items i
-    JOIN sections s ON i.section_id = s.id
-    WHERE i.due_date IS NOT NULL
-      AND i.due_date <= datetime('now', '+24 hours')
-      AND i.status < 2
-    ORDER BY i.due_date
-  `);
+  const res = db.exec(
+    'SELECT id, title, due_date FROM items WHERE due_date IS NOT NULL AND due_date <= ? AND status < 2 ORDER BY due_date',
+    [localTomorrow]
+  );
+
+  const container = document.getElementById('reminderBanners');
+  container.innerHTML = '';
 
   if (!res.length || !res[0].values.length) return;
 
+  // Load dismissed reminders: { "id:due_date": true }
+  let dismissed = {};
+  try { dismissed = JSON.parse(localStorage.getItem('dashora_dismissed_reminders') || '{}'); } catch(e) {}
+
   const rows = res[0].values;
-  const now = new Date().toISOString();
-  const overdue = rows.filter(r => r[1] < now);
-  const dueSoon = rows.filter(r => r[1] >= now);
+  for (const [id, title, dueDate] of rows) {
+    const key = id + ':' + dueDate;
+    if (dismissed[key]) continue; // Already dismissed for this schedule
 
-  let body = '';
-  if (dueSoon.length) {
-    body += `Due soon: ${dueSoon.map(r => r[0]).join(', ')}`;
-  }
-  if (overdue.length) {
-    if (body) body += '\n';
-    body += `Overdue: ${overdue.map(r => r[0]).join(', ')}`;
-  }
+    const isOverdue = dueDate < localNow;
+    const label = isOverdue ? 'Overdue' : 'Due soon';
+    const cls = isOverdue ? 'reminder-item-overdue' : 'reminder-item-soon';
 
-  if (body) {
-    new Notification('Dashora – Task Reminders', {
-      body: body,
-      icon: 'icons/icon-192.svg',
-      tag: 'dashora-due-' + today,
-    });
+    container.innerHTML += `
+      <div class="reminder-banner ${cls}">
+        <div class="reminder-banner-content">
+          <span class="reminder-banner-icon">${isOverdue ? '&#128308;' : '&#128992;'}</span>
+          <span class="reminder-banner-text"><strong>${label}:</strong> ${esc(title)} &middot; ${formatDueDate(dueDate)}</span>
+          <button class="reminder-banner-close" onclick="dismissReminder(${id}, '${escAttr(dueDate)}')">&times;</button>
+        </div>
+      </div>`;
   }
-
-  localStorage.setItem('dashora_last_notif_date', today);
 }
 
-// Periodic check every 30 minutes while app is open
-setInterval(() => {
-  if (db) checkDueDateNotifications();
-}, 30 * 60 * 1000);
+function dismissReminder(id, dueDate) {
+  let dismissed = {};
+  try { dismissed = JSON.parse(localStorage.getItem('dashora_dismissed_reminders') || '{}'); } catch(e) {}
+  dismissed[id + ':' + dueDate] = true;
+  localStorage.setItem('dashora_dismissed_reminders', JSON.stringify(dismissed));
+  checkDueDateNotifications();
+}
 
 
 /* ================================================================

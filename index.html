@@ -56,6 +56,10 @@
   </div>
 </div>
 
+<!-- Due date reminder banner -->
+<!-- Due date reminder banners -->
+<div class="reminder-banners" id="reminderBanners"></div>
+
 <div class="toast" id="toast"></div>
 
 <!--  Section Modal  -->
@@ -113,13 +117,16 @@
       <label>Link (optional)</label>
       <input type="text" id="itemLink" placeholder="https://...">
     </div>
-    <div class="form-group form-group-inline" id="recurringGroup">
-      <label class="toggle-label">
-        <input type="checkbox" id="itemRecurring">
-        <span class="toggle-slider"></span>
-        <span>Recurring daily task</span>
-      </label>
-      <div class="form-hint">When marked done, this task resets to active each morning</div>
+    <div class="form-group" id="recurringGroup">
+      <label>Recurring</label>
+      <select id="itemRecurring" class="form-select">
+        <option value="0">Not recurring</option>
+        <option value="1">Daily</option>
+        <option value="2">Weekly</option>
+        <option value="3">Biweekly</option>
+        <option value="4">Monthly</option>
+      </select>
+      <div class="form-hint">When marked done, this task resets automatically on schedule</div>
     </div>
     <div class="form-group" id="dueDateGroup">
       <label>Due Date (optional)</label>
@@ -165,7 +172,7 @@
         <span class="toggle-slider"></span>
         <span>Due date reminders</span>
       </label>
-      <div class="form-hint">Get notified when tasks are due today or overdue</div>
+      <div class="form-hint">Show a banner when tasks are due or overdue</div>
     </div>
     <div class="form-group form-group-inline">
       <label class="toggle-label">

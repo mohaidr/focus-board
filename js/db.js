@@ -145,15 +145,34 @@ function migrateTasksFirst() {
 }
 
 function resetRecurringTasks() {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
   const lastReset = localStorage.getItem('Dashora_last_reset');
 
-  if (lastReset === today) return; // Already reset today
+  if (lastReset === todayStr) return; // Already reset today
 
-  // Un-complete all recurring tasks
-  db.run('UPDATE items SET completed = 0, status = 0 WHERE recurring = 1 AND completed = 1');
+  const dayOfWeek = today.getDay(); // 0=Sun
+  const dayOfMonth = today.getDate();
 
-  localStorage.setItem('Dashora_last_reset', today);
+  // Daily (recurring=1): reset every day
+  db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE recurring = 1 AND completed = 1');
+
+  // Weekly (recurring=2): reset on Mondays
+  if (dayOfWeek === 1) {
+    db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE recurring = 2 AND completed = 1');
+  }
+
+  // Biweekly (recurring=3): reset on 1st and 15th
+  if (dayOfMonth === 1 || dayOfMonth === 15) {
+    db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE recurring = 3 AND completed = 1');
+  }
+
+  // Monthly (recurring=4): reset on the 1st
+  if (dayOfMonth === 1) {
+    db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE recurring = 4 AND completed = 1');
+  }
+
+  localStorage.setItem('Dashora_last_reset', todayStr);
 }
 
 function autoDeleteCompletedTasks() {
