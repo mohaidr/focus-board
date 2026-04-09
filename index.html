@@ -119,13 +119,23 @@
     </div>
     <div class="form-group" id="recurringGroup">
       <label>Recurring</label>
-      <select id="itemRecurring" class="form-select">
+      <select id="itemRecurring" class="form-select" onchange="onRecurringChange()">
         <option value="0">Not recurring</option>
         <option value="1">Daily</option>
         <option value="2">Weekly</option>
         <option value="3">Biweekly</option>
         <option value="4">Monthly</option>
+        <option value="5">Specific days</option>
       </select>
+      <div class="recurring-days-wrap" id="recurringDaysWrap" style="display:none">
+        <label class="recurring-day-chip"><input type="checkbox" value="1"> Mon</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="2"> Tue</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="3"> Wed</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="4"> Thu</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="5"> Fri</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="6"> Sat</label>
+        <label class="recurring-day-chip"><input type="checkbox" value="0"> Sun</label>
+      </div>
       <div class="form-hint">When marked done, this task resets automatically on schedule</div>
     </div>
     <div class="form-group" id="dueDateGroup">
@@ -166,6 +176,14 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h2>Settings</h2>
+    <div class="form-group form-group-inline">
+      <label class="toggle-label">
+        <input type="checkbox" id="autoSaveEnabled">
+        <span class="toggle-slider"></span>
+        <span>Auto-save items</span>
+      </label>
+      <div class="form-hint">Automatically save items as you edit them</div>
+    </div>
     <div class="form-group form-group-inline">
       <label class="toggle-label">
         <input type="checkbox" id="notificationsEnabled">

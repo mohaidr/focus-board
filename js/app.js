@@ -54,6 +54,23 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
+function onRecurringChange() {
+  const val = document.getElementById('itemRecurring').value;
+  document.getElementById('recurringDaysWrap').style.display = val === '5' ? '' : 'none';
+}
+
+function getSelectedRecurringDays() {
+  const checks = document.querySelectorAll('#recurringDaysWrap input[type=checkbox]:checked');
+  return Array.from(checks).map(c => c.value).join(',');
+}
+
+function setRecurringDaysCheckboxes(daysStr) {
+  const days = (daysStr || '').split(',').filter(Boolean);
+  document.querySelectorAll('#recurringDaysWrap input[type=checkbox]').forEach(c => {
+    c.checked = days.includes(c.value);
+  });
+}
+
 function formatDueDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -457,7 +474,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
-  const recurLabels = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly' };
+  const recurLabels = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly', 5: 'Custom' };
   const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${recurLabels[recurring] || ''}">${recurLabels[recurring] || '\u{1F501}'}</span>` : '';
 
   // Due date badge
@@ -495,6 +512,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         <option value="2" ${recurring===2 ? 'selected' : ''}>&#128260; Weekly</option>
         <option value="3" ${recurring===3 ? 'selected' : ''}>&#128260; Biweekly</option>
         <option value="4" ${recurring===4 ? 'selected' : ''}>&#128260; Monthly</option>
+        <option value="5" ${recurring===5 ? 'selected' : ''}>&#128260; Specific days</option>
       </select>`;
 
     // Status buttons
@@ -872,7 +890,22 @@ function toggleRecurring(event, id) {
 function setRecurring(event, id, value) {
   event.stopPropagation();
   const val = parseInt(value) || 0;
-  db.run('UPDATE items SET recurring = ? WHERE id = ?', [val, id]);
+  if (val === 5) {
+    // Save recurring=5 first, then open modal to pick days
+    db.run('UPDATE items SET recurring = 5 WHERE id = ?', [id]);
+    persist();
+    const secRes = db.exec('SELECT section_id FROM items WHERE id = ?', [id]);
+    if (secRes.length) {
+      openItemModal(secRes[0].values[0][0], id);
+      // Highlight the recurring days section
+      const wrap = document.getElementById('recurringDaysWrap');
+      wrap.classList.add('recurring-days-highlight');
+      wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => wrap.classList.remove('recurring-days-highlight'), 2500);
+    }
+    return;
+  }
+  db.run('UPDATE items SET recurring = ?, recurring_days = NULL WHERE id = ?', [val, id]);
   persist();
   renderMain();
   const labels = { 0: 'Recurring off', 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly' };
@@ -1000,12 +1033,17 @@ function openItemModal(sectionId, editId) {
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
-    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date FROM items WHERE id = ?', [editId]);
+    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date, recurring_days FROM items WHERE id = ?', [editId]);
     if (row.length) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
       linkInput.value  = row[0].values[0][2] || '';
       document.getElementById('itemRecurring').value = row[0].values[0][3] || 0;
+
+      // Recurring days
+      const recurVal = row[0].values[0][3] || 0;
+      document.getElementById('recurringDaysWrap').style.display = recurVal == 5 ? '' : 'none';
+      setRecurringDaysCheckboxes(row[0].values[0][6] || '');
 
       // Due date
       const dueVal = row[0].values[0][5] || '';
@@ -1039,6 +1077,8 @@ function openItemModal(sectionId, editId) {
     linkInput.value  = '';
     editInput.value  = '';
     document.getElementById('itemRecurring').value = 0;
+    document.getElementById('recurringDaysWrap').style.display = 'none';
+    setRecurringDaysCheckboxes('');
     document.getElementById('itemDueDate').value = '';
     document.getElementById('dueDateClearBtn').style.display = 'none';
   }
@@ -1080,7 +1120,10 @@ function closeItemModal() {
     sketchCtx = null;
     sketchActive = false;
   }
+  clearTimeout(autoSaveTimer);
   closeModal('itemModal');
+  renderSidebar();
+  renderMain();
 }
 
 function saveItem() {
@@ -1098,6 +1141,7 @@ function saveItem() {
   }
 
   const dueDate = document.getElementById('itemDueDate').value || null;
+  const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
 
   // Get sketch data if canvas is active
   let sketchDataURL = null;
@@ -1114,12 +1158,12 @@ function saveItem() {
   }
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ? WHERE id = ?',
-      [title, desc, link, recurring, sketchDataURL, dueDate, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays]);
   }
 
   persist();
@@ -1229,11 +1273,13 @@ function openSettingsModal() {
   const enabled = localStorage.getItem('dashora_autodelete_enabled') === 'true';
   const days = localStorage.getItem('dashora_autodelete_days') || '7';
   const notifEnabled = localStorage.getItem('dashora_notifications') === 'true';
+  const autoSave = localStorage.getItem('dashora_autosave') === 'true';
 
   document.getElementById('autoDeleteEnabled').checked = enabled;
   document.getElementById('autoDeleteDays').value = days;
   document.getElementById('autoDeleteDelayGroup').style.display = enabled ? '' : 'none';
   document.getElementById('notificationsEnabled').checked = notifEnabled;
+  document.getElementById('autoSaveEnabled').checked = autoSave;
 
   // Toggle visibility when checkbox changes
   document.getElementById('autoDeleteEnabled').onchange = function () {
@@ -1247,10 +1293,12 @@ function saveSettings() {
   const enabled = document.getElementById('autoDeleteEnabled').checked;
   const days = document.getElementById('autoDeleteDays').value;
   const notifEnabled = document.getElementById('notificationsEnabled').checked;
+  const autoSave = document.getElementById('autoSaveEnabled').checked;
 
   localStorage.setItem('dashora_autodelete_enabled', enabled ? 'true' : 'false');
   localStorage.setItem('dashora_autodelete_days', days);
   localStorage.setItem('dashora_notifications', notifEnabled ? 'true' : 'false');
+  localStorage.setItem('dashora_autosave', autoSave ? 'true' : 'false');
 
   closeModal('settingsModal');
   toast('Settings saved');
@@ -1309,6 +1357,76 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'itemDueDate') {
     document.getElementById('dueDateClearBtn').style.display = e.target.value ? '' : 'none';
   }
+});
+
+// Auto-save: debounced save when editing item modal fields
+let autoSaveTimer = null;
+
+function silentSaveItem() {
+  // Save current item without closing modal or re-rendering
+  const title = document.getElementById('itemTitle').value.trim();
+  if (!title) return false;
+
+  const desc      = document.getElementById('itemDesc').value.trim();
+  const link      = document.getElementById('itemLink').value.trim();
+  const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
+  const dueDate   = document.getElementById('itemDueDate').value || null;
+  const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
+  const sectionId = parseInt(document.getElementById('itemSectionId').value);
+
+  // Get sketch data if canvas is active
+  let sketchDataURL = null;
+  if (sketchActive && sketchCtx) {
+    const canvas = document.getElementById('sketchCanvas');
+    const pixels = sketchCtx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let isBlank = true;
+    for (let i = 3; i < pixels.length; i += 4) {
+      if (pixels[i] !== 0) { isBlank = false; break; }
+    }
+    if (!isBlank) sketchDataURL = canvas.toDataURL('image/png');
+  }
+
+  let editId = document.getElementById('editItemId').value;
+
+  if (editId) {
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, parseInt(editId)]);
+  } else {
+    // Create the item for the first time
+    const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays]);
+    const newId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+    document.getElementById('editItemId').value = newId;
+  }
+
+  persist();
+  renderSidebar();
+  return true;
+}
+
+function scheduleAutoSave() {
+  if (localStorage.getItem('dashora_autosave') !== 'true') return;
+  if (!document.getElementById('itemModal').classList.contains('active')) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    if (silentSaveItem()) toast('Auto-saved');
+  }, 1500);
+}
+
+// Save on page exit if modal is open and auto-save is on
+window.addEventListener('beforeunload', () => {
+  if (localStorage.getItem('dashora_autosave') !== 'true') return;
+  if (!document.getElementById('itemModal').classList.contains('active')) return;
+  silentSaveItem();
+});
+
+// Attach auto-save listeners to item modal fields
+['itemTitle', 'itemDesc', 'itemLink'].forEach(id => {
+  document.getElementById(id).addEventListener('input', scheduleAutoSave);
+});
+['itemRecurring', 'itemDueDate'].forEach(id => {
+  document.getElementById(id).addEventListener('change', scheduleAutoSave);
 });
 
 
@@ -1430,6 +1548,7 @@ function sketchPointerUp(e) {
   sketchDrawing = false;
   sketchLastPoint = null;
   sketchCtx.globalCompositeOperation = 'source-over';
+  scheduleAutoSave();
 }
 
 function setSketchTool(tool) {

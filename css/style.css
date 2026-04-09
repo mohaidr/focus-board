@@ -1060,23 +1060,23 @@ body {
 
 .toast {
   position: fixed;
-  bottom: 28px;
-  right: 28px;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
   background: var(--card);
   color: var(--text);
   padding: 14px 22px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 500;
   z-index: 300;
   opacity: 0;
-  transform: translateY(10px);
   transition: all 0.3s ease;
   pointer-events: none;
   box-shadow: 0 4px 16px var(--shadow);
 }
-.toast.show { opacity: 1; transform: translateY(0); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 .drop-indicator {
   height: 3px;
@@ -1206,6 +1206,55 @@ body {
   }
 }
 
+
+/* Recurring days picker */
+.recurring-days-wrap {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.recurring-day-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.recurring-day-chip:hover {
+  border-color: var(--text-muted);
+}
+.recurring-day-chip input[type="checkbox"] {
+  display: none;
+}
+.recurring-day-chip:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.recurring-days-highlight {
+  padding: 10px;
+  border-radius: var(--radius);
+  animation: daysHighlight 2.5s ease;
+}
+@keyframes daysHighlight {
+  0%, 100% { box-shadow: none; }
+  10%, 90% { box-shadow: 0 0 0 3px var(--accent-glow), 0 0 12px rgba(110, 142, 251, 0.3); }
+  30%, 70% { box-shadow: 0 0 0 4px rgba(110, 142, 251, 0.4), 0 0 18px rgba(110, 142, 251, 0.25); }
+}
+.recurring-days-highlight .recurring-day-chip {
+  border-color: var(--accent);
+}
 
 /* Recurring dropdown in expanded card */
 .recurring-select {

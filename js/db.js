@@ -118,6 +118,13 @@ function createTables() {
   } catch (e) {
     db.run('ALTER TABLE items ADD COLUMN due_date TEXT DEFAULT NULL');
   }
+
+  // Migration: add recurring_days column (comma-separated day numbers, e.g. "1,3,5" for Mon/Wed/Fri)
+  try {
+    db.exec('SELECT recurring_days FROM items LIMIT 1');
+  } catch (e) {
+    db.run("ALTER TABLE items ADD COLUMN recurring_days TEXT DEFAULT NULL");
+  }
 }
 
 // ── Seed Data ──
@@ -170,6 +177,17 @@ function resetRecurringTasks() {
   // Monthly (recurring=4): reset on the 1st
   if (dayOfMonth === 1) {
     db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE recurring = 4 AND completed = 1');
+  }
+
+  // Specific days (recurring=5): reset if today's day-of-week is in recurring_days
+  const specificRes = db.exec("SELECT id, recurring_days FROM items WHERE recurring = 5 AND completed = 1 AND recurring_days IS NOT NULL");
+  if (specificRes.length && specificRes[0].values.length) {
+    for (const [id, days] of specificRes[0].values) {
+      const dayList = (days || '').split(',').map(Number);
+      if (dayList.includes(dayOfWeek)) {
+        db.run('UPDATE items SET completed = 0, status = 0, completed_at = NULL WHERE id = ?', [id]);
+      }
+    }
   }
 
   localStorage.setItem('Dashora_last_reset', todayStr);
