@@ -57,6 +57,20 @@ function toast(msg) {
 function onRecurringChange() {
   const val = document.getElementById('itemRecurring').value;
   document.getElementById('recurringDaysWrap').style.display = val === '5' ? '' : 'none';
+  document.getElementById('recurringTimeWrap').style.display = val !== '0' ? '' : 'none';
+}
+
+function clearRecurringTime() {
+  document.getElementById('itemRecurringTime').value = '';
+  document.getElementById('recurringTimeClearBtn').style.display = 'none';
+}
+
+function formatRecurringTime(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 || 12;
+  return `${hr}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
 function getSelectedRecurringDays() {
@@ -477,6 +491,14 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
   const recurLabels = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly', 5: 'Custom' };
   const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${recurLabels[recurring] || ''}">${recurLabels[recurring] || '\u{1F501}'}</span>` : '';
 
+  // Recurring time badge
+  const recurTimeRes = db.exec('SELECT recurring_time FROM items WHERE id = ?', [iid]);
+  const recurTime = (recurTimeRes.length && recurTimeRes[0].values[0][0]) ? recurTimeRes[0].values[0][0] : null;
+  let recurTimeBadge = '';
+  if (recurring && recurTime) {
+    recurTimeBadge = `<span class="recur-time-badge" title="Reminder at ${formatRecurringTime(recurTime)}">&#128340; ${formatRecurringTime(recurTime)}</span>`;
+  }
+
   // Due date badge
   let dueBadge = '';
   if (dueDate && st !== 2) {
@@ -558,7 +580,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${dueBadge}${recurBadge}${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${hasDesc}${hasLink}</div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
@@ -1033,7 +1055,7 @@ function openItemModal(sectionId, editId) {
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
-    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date, recurring_days FROM items WHERE id = ?', [editId]);
+    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date, recurring_days, recurring_time FROM items WHERE id = ?', [editId]);
     if (row.length) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
@@ -1044,6 +1066,12 @@ function openItemModal(sectionId, editId) {
       const recurVal = row[0].values[0][3] || 0;
       document.getElementById('recurringDaysWrap').style.display = recurVal == 5 ? '' : 'none';
       setRecurringDaysCheckboxes(row[0].values[0][6] || '');
+
+      // Recurring time
+      const recurTimeVal = row[0].values[0][7] || '';
+      document.getElementById('recurringTimeWrap').style.display = recurVal != 0 ? '' : 'none';
+      document.getElementById('itemRecurringTime').value = recurTimeVal;
+      document.getElementById('recurringTimeClearBtn').style.display = recurTimeVal ? '' : 'none';
 
       // Due date
       const dueVal = row[0].values[0][5] || '';
@@ -1079,6 +1107,9 @@ function openItemModal(sectionId, editId) {
     document.getElementById('itemRecurring').value = 0;
     document.getElementById('recurringDaysWrap').style.display = 'none';
     setRecurringDaysCheckboxes('');
+    document.getElementById('recurringTimeWrap').style.display = 'none';
+    document.getElementById('itemRecurringTime').value = '';
+    document.getElementById('recurringTimeClearBtn').style.display = 'none';
     document.getElementById('itemDueDate').value = '';
     document.getElementById('dueDateClearBtn').style.display = 'none';
   }
@@ -1142,6 +1173,7 @@ function saveItem() {
 
   const dueDate = document.getElementById('itemDueDate').value || null;
   const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
+  const recurringTime = recurring ? (document.getElementById('itemRecurringTime').value || null) : null;
 
   // Get sketch data if canvas is active
   let sketchDataURL = null;
@@ -1158,12 +1190,12 @@ function saveItem() {
   }
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ? WHERE id = ?',
-      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
   }
 
   persist();
@@ -1372,6 +1404,7 @@ function silentSaveItem() {
   const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
   const dueDate   = document.getElementById('itemDueDate').value || null;
   const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
+  const recurringTime = recurring ? (document.getElementById('itemRecurringTime').value || null) : null;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
 
   // Get sketch data if canvas is active
@@ -1389,13 +1422,13 @@ function silentSaveItem() {
   let editId = document.getElementById('editItemId').value;
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ? WHERE id = ?',
-      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
+      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
   } else {
     // Create the item for the first time
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays]);
+    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
     const newId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
     document.getElementById('editItemId').value = newId;
   }
@@ -1427,6 +1460,12 @@ window.addEventListener('beforeunload', () => {
 });
 ['itemRecurring', 'itemDueDate'].forEach(id => {
   document.getElementById(id).addEventListener('change', scheduleAutoSave);
+});
+
+// Recurring time clear button visibility & auto-save
+document.getElementById('itemRecurringTime').addEventListener('change', function() {
+  document.getElementById('recurringTimeClearBtn').style.display = this.value ? '' : 'none';
+  scheduleAutoSave();
 });
 
 
@@ -1596,29 +1635,75 @@ function checkDueDateNotifications() {
   const container = document.getElementById('reminderBanners');
   container.innerHTML = '';
 
-  if (!res.length || !res[0].values.length) return;
-
   // Load dismissed reminders: { "id:due_date": true }
   let dismissed = {};
   try { dismissed = JSON.parse(localStorage.getItem('dashora_dismissed_reminders') || '{}'); } catch(e) {}
 
-  const rows = res[0].values;
-  for (const [id, title, dueDate] of rows) {
-    const key = id + ':' + dueDate;
-    if (dismissed[key]) continue; // Already dismissed for this schedule
+  // Due date reminders
+  if (res.length && res[0].values.length) {
+    const rows = res[0].values;
+    for (const [id, title, dueDate] of rows) {
+      const key = id + ':' + dueDate;
+      if (dismissed[key]) continue;
 
-    const isOverdue = dueDate < localNow;
-    const label = isOverdue ? 'Overdue' : 'Due soon';
-    const cls = isOverdue ? 'reminder-item-overdue' : 'reminder-item-soon';
+      const isOverdue = dueDate < localNow;
+      const label = isOverdue ? 'Overdue' : 'Due soon';
+      const cls = isOverdue ? 'reminder-item-overdue' : 'reminder-item-soon';
 
-    container.innerHTML += `
-      <div class="reminder-banner ${cls}">
-        <div class="reminder-banner-content">
-          <span class="reminder-banner-icon">${isOverdue ? '&#128308;' : '&#128992;'}</span>
-          <span class="reminder-banner-text"><strong>${label}:</strong> ${esc(title)} &middot; ${formatDueDate(dueDate)}</span>
-          <button class="reminder-banner-close" onclick="dismissReminder(${id}, '${escAttr(dueDate)}')">&times;</button>
-        </div>
-      </div>`;
+      container.innerHTML += `
+        <div class="reminder-banner ${cls}">
+          <div class="reminder-banner-content">
+            <span class="reminder-banner-icon">${isOverdue ? '&#128308;' : '&#128992;'}</span>
+            <span class="reminder-banner-text"><strong>${label}:</strong> ${esc(title)} &middot; ${formatDueDate(dueDate)}</span>
+            <button class="reminder-banner-close" onclick="dismissReminder(${id}, '${escAttr(dueDate)}')">&times;</button>
+          </div>
+        </div>`;
+    }
+  }
+
+  // Recurring time reminders
+  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const recurRes = db.exec(
+    'SELECT id, title, recurring, recurring_time, recurring_days FROM items WHERE recurring > 0 AND recurring_time IS NOT NULL AND status < 2'
+  );
+  if (recurRes.length && recurRes[0].values.length) {
+    const todayStr = now.toISOString().slice(0, 10);
+    const dayOfWeek = now.getDay();
+    for (const [id, title, recurring, recurTime, recurDays] of recurRes[0].values) {
+      // Check if the recurring schedule applies today
+      let appliesToday = false;
+      if (recurring === 1) appliesToday = true; // daily
+      else if (recurring === 2) appliesToday = dayOfWeek === 1; // weekly (Monday)
+      else if (recurring === 3) appliesToday = (now.getDate() === 1 || now.getDate() === 15); // biweekly
+      else if (recurring === 4) appliesToday = now.getDate() === 1; // monthly
+      else if (recurring === 5 && recurDays) {
+        appliesToday = recurDays.split(',').map(Number).includes(dayOfWeek);
+      }
+      if (!appliesToday) continue;
+
+      // Show reminder if current time is within 30 min before or after the set time
+      const [rh, rm] = recurTime.split(':').map(Number);
+      const recurMinutes = rh * 60 + rm;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const diff = nowMinutes - recurMinutes;
+      if (diff < -30 || diff > 30) continue;
+
+      const key = 'recur:' + id + ':' + todayStr;
+      if (dismissed[key]) continue;
+
+      const isOverdue = diff > 0;
+      const label = isOverdue ? 'Recurring (past time)' : 'Recurring reminder';
+      const cls = isOverdue ? 'reminder-item-overdue' : 'reminder-item-soon';
+
+      container.innerHTML += `
+        <div class="reminder-banner ${cls}">
+          <div class="reminder-banner-content">
+            <span class="reminder-banner-icon">&#128340;</span>
+            <span class="reminder-banner-text"><strong>${label}:</strong> ${esc(title)} &middot; ${formatRecurringTime(recurTime)}</span>
+            <button class="reminder-banner-close" onclick="dismissReminder('recur:${id}', '${escAttr(todayStr)}')">&times;</button>
+          </div>
+        </div>`;
+    }
   }
 }
 

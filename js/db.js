@@ -125,6 +125,13 @@ function createTables() {
   } catch (e) {
     db.run("ALTER TABLE items ADD COLUMN recurring_days TEXT DEFAULT NULL");
   }
+
+  // Migration: add recurring_time column (HH:MM format for recurring task reminders)
+  try {
+    db.exec('SELECT recurring_time FROM items LIMIT 1');
+  } catch (e) {
+    db.run("ALTER TABLE items ADD COLUMN recurring_time TEXT DEFAULT NULL");
+  }
 }
 
 // ── Seed Data ──

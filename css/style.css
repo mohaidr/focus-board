@@ -1346,6 +1346,52 @@ body {
   opacity: 0.6;
 }
 
+/* Recurring time */
+.recurring-time-wrap {
+  margin-top: 10px;
+}
+.recurring-time-wrap label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  display: block;
+}
+.recurring-time-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.recurring-time-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color-scheme: dark;
+}
+.recurring-time-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.recurring-time-clear {
+  flex-shrink: 0;
+}
+
+/* Recurring time badge on cards */
+.recur-time-badge {
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-glow);
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
 
 /* ================================================================
    Sketch Canvas (embedded in Item Modal)
