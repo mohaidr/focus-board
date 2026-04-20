@@ -1202,6 +1202,7 @@ function saveItem() {
   closeItemModal();
   renderSidebar();
   renderMain();
+  checkDueDateNotifications();
   toast(editId ? 'Item updated' : 'Item added');
 }
 
@@ -1688,7 +1689,7 @@ function checkDueDateNotifications() {
       const diff = nowMinutes - recurMinutes;
       if (diff < -30 || diff > 30) continue;
 
-      const key = 'recur:' + id + ':' + todayStr;
+      const key = 'recur:' + id + ':' + todayStr + ':' + recurTime;
       if (dismissed[key]) continue;
 
       const isOverdue = diff > 0;
@@ -1700,7 +1701,7 @@ function checkDueDateNotifications() {
           <div class="reminder-banner-content">
             <span class="reminder-banner-icon">&#128340;</span>
             <span class="reminder-banner-text"><strong>${label}:</strong> ${esc(title)} &middot; ${formatRecurringTime(recurTime)}</span>
-            <button class="reminder-banner-close" onclick="dismissReminder('recur:${id}', '${escAttr(todayStr)}')">&times;</button>
+            <button class="reminder-banner-close" onclick="dismissReminder('recur:${id}', '${escAttr(todayStr + ':' + recurTime)}')">&times;</button>
           </div>
         </div>`;
     }

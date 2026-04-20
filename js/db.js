@@ -263,4 +263,18 @@ async function initDB() {
 
   // Check for due date notifications
   checkDueDateNotifications();
+
+  // Periodically check for recurring resets and reminders (every 60s)
+  setInterval(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lastReset = localStorage.getItem('Dashora_last_reset');
+    if (lastReset !== todayStr) {
+      resetRecurringTasks();
+      autoDeleteCompletedTasks();
+      persist();
+      renderSidebar();
+      renderMain();
+    }
+    checkDueDateNotifications();
+  }, 60000);
 }
