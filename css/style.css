@@ -1089,6 +1089,78 @@ body {
 
 
 /* ================================================================
+   Backup Tab
+   ================================================================ */
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.backup-folder-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.backup-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.backup-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.backup-title {
+  font-size: 18px;
+  color: var(--text);
+}
+
+.backup-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.backup-pill {
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid rgba(110, 142, 251, 0.25);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.backup-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.backup-delete-btn {
+  color: var(--danger);
+  border-color: rgba(240, 104, 120, 0.45);
+}
+
+.backup-delete-btn:hover {
+  color: #fff;
+  background: rgba(240, 104, 120, 0.14);
+  border-color: var(--danger);
+}
+
+
+/* ================================================================
    Mobile
    ================================================================ */
 .sidebar-overlay {
@@ -1125,6 +1197,13 @@ body {
   .sidebar-toggle { display: block; }
   .main-body { padding: 18px; }
   .main-header { padding: 18px 18px 0; }
+  .backup-actions {
+    justify-content: stretch;
+  }
+  .backup-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 

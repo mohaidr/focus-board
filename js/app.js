@@ -24,6 +24,14 @@ let sectionSearchTerm  = '';
 let taskBoardsVisible  = 5;
 let refBoardsVisible   = 5;
 const SIDEBAR_PAGE_SIZE = 5;
+const BACKUP_RETENTION = 5;
+const BACKUP_META_DB = 'DashoraBackupMetaDB';
+const BACKUP_META_STORE = 'meta';
+const BACKUP_META_KEY = 'folderHandle';
+const BACKUP_FILE_PREFIX = 'dashora-backup-';
+let activeView = 'board';
+let backupFolderHandle = null;
+let backupFilesCache = [];
 
 
 /* ================================================================
@@ -152,6 +160,465 @@ function icsEscape(str) {
   return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
+function isFileSystemBackupSupported() {
+  return typeof window.showDirectoryPicker === 'function';
+}
+
+function openBackupMetaDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(BACKUP_META_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(BACKUP_META_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('Failed to open backup metadata DB'));
+  });
+}
+
+async function getStoredBackupFolderHandle() {
+  try {
+    const dbm = await openBackupMetaDB();
+    return await new Promise((resolve) => {
+      const tx = dbm.transaction(BACKUP_META_STORE, 'readonly');
+      const req = tx.objectStore(BACKUP_META_STORE).get(BACKUP_META_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function setStoredBackupFolderHandle(handle) {
+  try {
+    const dbm = await openBackupMetaDB();
+    await new Promise((resolve, reject) => {
+      const tx = dbm.transaction(BACKUP_META_STORE, 'readwrite');
+      tx.objectStore(BACKUP_META_STORE).put(handle, BACKUP_META_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to store backup folder handle'));
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function clearStoredBackupFolderHandle() {
+  try {
+    const dbm = await openBackupMetaDB();
+    await new Promise((resolve, reject) => {
+      const tx = dbm.transaction(BACKUP_META_STORE, 'readwrite');
+      tx.objectStore(BACKUP_META_STORE).delete(BACKUP_META_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to clear backup folder handle'));
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function ensureBackupFolderPermission(mode = 'readwrite') {
+  if (!backupFolderHandle) return false;
+  const opts = { mode };
+  let permission = await backupFolderHandle.queryPermission(opts);
+  if (permission !== 'granted') {
+    permission = await backupFolderHandle.requestPermission(opts);
+  }
+  return permission === 'granted';
+}
+
+function normalizeBackupRecord(raw, fileName) {
+  if (!raw || !raw.snapshot || !raw.snapshot.sections || !raw.snapshot.items) return null;
+  return {
+    id: fileName,
+    fileName,
+    reason: raw.reason || 'manual',
+    createdAt: raw.createdAt || new Date().toISOString(),
+    dayKey: raw.dayKey || dayKey(new Date(raw.createdAt || Date.now())),
+    snapshot: raw.snapshot,
+  };
+}
+
+async function readBackupFile(fileHandle) {
+  const file = await fileHandle.getFile();
+  const text = await file.text();
+  const parsed = JSON.parse(text);
+  return normalizeBackupRecord(parsed, fileHandle.name);
+}
+
+async function refreshBackupFiles() {
+  if (!backupFolderHandle) {
+    backupFilesCache = [];
+    return backupFilesCache;
+  }
+
+  const hasPermission = await ensureBackupFolderPermission('readwrite');
+  if (!hasPermission) {
+    backupFilesCache = [];
+    return backupFilesCache;
+  }
+
+  const backups = [];
+  for await (const [name, handle] of backupFolderHandle.entries()) {
+    if (handle.kind !== 'file') continue;
+    if (!name.startsWith(BACKUP_FILE_PREFIX) || !name.endsWith('.json')) continue;
+    try {
+      const rec = await readBackupFile(handle);
+      if (rec) backups.push(rec);
+    } catch (e) {
+      // Ignore unreadable backup files.
+    }
+  }
+
+  backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  backupFilesCache = backups;
+  return backupFilesCache;
+}
+
+async function pruneBackupFiles() {
+  if (!backupFolderHandle) return;
+  const backups = await refreshBackupFiles();
+  const extra = backups.slice(BACKUP_RETENTION);
+  for (const b of extra) {
+    try {
+      await backupFolderHandle.removeEntry(b.fileName);
+    } catch (e) {
+      // Ignore file-level delete failures and continue pruning other files.
+    }
+  }
+  await refreshBackupFiles();
+}
+
+function buildBackupFileName(reason, createdAt) {
+  const safeReason = (reason || 'manual').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+  const stamp = createdAt.replace(/[:.]/g, '-');
+  return `${BACKUP_FILE_PREFIX}${stamp}-${safeReason}.json`;
+}
+
+async function initBackupSystem() {
+  if (!isFileSystemBackupSupported()) {
+    backupFolderHandle = null;
+    backupFilesCache = [];
+    return;
+  }
+
+  backupFolderHandle = await getStoredBackupFolderHandle();
+  if (!backupFolderHandle) {
+    backupFilesCache = [];
+    return;
+  }
+
+  const hasPermission = await ensureBackupFolderPermission('readwrite');
+  if (!hasPermission) {
+    backupFilesCache = [];
+    return;
+  }
+
+  await pruneBackupFiles();
+  await ensureDailyBackup();
+  renderSidebar();
+  if (activeView === 'backup') renderMain();
+}
+
+async function selectBackupFolder() {
+  if (!isFileSystemBackupSupported()) {
+    toast('File system backups are not supported in this browser');
+    return;
+  }
+
+  try {
+    const picked = await window.showDirectoryPicker({ mode: 'readwrite' });
+    backupFolderHandle = picked;
+    await setStoredBackupFolderHandle(picked);
+    await pruneBackupFiles();
+    await ensureDailyBackup();
+    renderSidebar();
+    if (activeView === 'backup') renderMain();
+    toast('Backup folder connected');
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    toast('Could not access selected folder');
+  }
+}
+
+async function disconnectBackupFolder() {
+  if (!backupFolderHandle) return;
+  if (!confirm('Disconnect backup folder? Existing backup files will stay on disk.')) return;
+  backupFolderHandle = null;
+  backupFilesCache = [];
+  await clearStoredBackupFolderHandle();
+  renderSidebar();
+  if (activeView === 'backup') renderMain();
+  toast('Backup folder disconnected');
+}
+
+function snapshotCurrentData() {
+  return {
+    sections: db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC'),
+    items: db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id'),
+  };
+}
+
+function dayKey(date) {
+  const d = date || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+async function createBackup(reason, options = {}) {
+  if (!db) return false;
+  if (!isFileSystemBackupSupported()) {
+    if (!options.silent) toast('File system backups are not supported in this browser');
+    return false;
+  }
+  if (!backupFolderHandle) {
+    if (!options.silent) toast('Select a backup folder first');
+    return false;
+  }
+
+  const hasPermission = await ensureBackupFolderPermission('readwrite');
+  if (!hasPermission) {
+    if (!options.silent) toast('Backup folder permission denied');
+    return false;
+  }
+
+  const silent = options.silent === true;
+  const force = options.force === true;
+  const createdAt = options.createdAt || new Date().toISOString();
+  const key = dayKey(new Date(createdAt));
+  const backups = await refreshBackupFiles();
+
+  if (!force && reason === 'daily' && backups.some(b => b && b.dayKey === key)) {
+    return false;
+  }
+
+  const record = {
+    reason: reason || 'manual',
+    createdAt,
+    dayKey: key,
+    snapshot: snapshotCurrentData(),
+  };
+
+  try {
+    const fileName = buildBackupFileName(record.reason, record.createdAt);
+    const fileHandle = await backupFolderHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify(record, null, 2));
+    await writable.close();
+    await pruneBackupFiles();
+  } catch (e) {
+    if (!silent) toast('Backup failed: could not write file');
+    return false;
+  }
+
+  if (!silent) {
+    toast('Backup file created');
+  }
+
+  renderSidebar();
+  if (activeView === 'backup') renderMain();
+  return true;
+}
+
+async function ensureDailyBackup() {
+  await createBackup('daily', { silent: true });
+}
+
+async function ensureBackupRetention() {
+  await pruneBackupFiles();
+  if (activeView === 'backup') {
+    renderSidebar();
+    renderMain();
+  }
+  return backupFilesCache.length;
+}
+
+function applySnapshot(snapshot) {
+  if (!snapshot || !snapshot.sections || !snapshot.items) {
+    throw new Error('Invalid backup data');
+  }
+
+  db.run('DELETE FROM items');
+  db.run('DELETE FROM sections');
+
+  if (snapshot.sections.length && snapshot.sections[0].values) {
+    const cols = snapshot.sections[0].columns
+      ? snapshot.sections[0].columns.join(', ')
+      : 'id, name, color, sort_order, created_at';
+    const ph = snapshot.sections[0].columns
+      ? snapshot.sections[0].columns.map(() => '?').join(', ')
+      : '?, ?, ?, ?, ?';
+    for (const row of snapshot.sections[0].values) {
+      db.run(`INSERT INTO sections (${cols}) VALUES (${ph})`, row);
+    }
+  }
+
+  if (snapshot.items.length && snapshot.items[0].values) {
+    const cols = snapshot.items[0].columns
+      ? snapshot.items[0].columns.join(', ')
+      : 'id, section_id, title, description, link, completed, sort_order, created_at';
+    const ph = snapshot.items[0].columns
+      ? snapshot.items[0].columns.map(() => '?').join(', ')
+      : '?, ?, ?, ?, ?, ?, ?, ?';
+    for (const row of snapshot.items[0].values) {
+      db.run(`INSERT INTO items (${cols}) VALUES (${ph})`, row);
+    }
+  }
+}
+
+function formatBackupDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString();
+}
+
+function renderBackupTab() {
+  const header = document.getElementById('mainHeader');
+  const body = document.getElementById('mainBody');
+  const backups = backupFilesCache;
+  const canUseFS = isFileSystemBackupSupported();
+  const folderConnected = !!backupFolderHandle;
+  const folderName = folderConnected ? backupFolderHandle.name : 'No folder selected';
+
+  header.innerHTML = `
+    <div class="main-header-left">
+      <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <h2>Backups</h2>
+      <span class="item-total">${backups.length} file${backups.length !== 1 ? 's' : ''}</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="selectBackupFolder()">&#128193; Choose folder</button>
+      ${folderConnected ? '<button class="btn btn-ghost btn-sm" onclick="disconnectBackupFolder()">Disconnect</button>' : ''}
+      <button class="btn btn-ghost btn-sm" onclick="createBackup('manual')" ${folderConnected ? '' : 'disabled'}>&#128190; Backup now</button>
+    </div>`;
+
+  if (!canUseFS) {
+    body.innerHTML = `<div class="empty-state">
+      <h3>File system backup is unavailable</h3>
+      <p>Your current browser does not support folder-based backups.</p>
+    </div>`;
+    return;
+  }
+
+  if (!folderConnected) {
+    body.innerHTML = `<div class="empty-state">
+      <h3>Choose a backup folder</h3>
+      <p>Backups are saved as JSON files on disk. Only the latest ${BACKUP_RETENTION} files are kept automatically.</p>
+      <button class="btn btn-primary" onclick="selectBackupFolder()">Select folder</button>
+    </div>`;
+    return;
+  }
+
+  let html = `<div class="backup-folder-note">Folder: ${esc(folderName)}</div>`;
+
+  if (!backups.length) {
+    body.innerHTML = `${html}<div class="empty-state">
+      <h3>No backups yet</h3>
+      <p>Daily backups are created automatically and only the latest ${BACKUP_RETENTION} files are kept.</p>
+      <button class="btn btn-primary" onclick="createBackup('manual')">Create first backup</button>
+    </div>`;
+    return;
+  }
+
+  const cards = backups.map((b, idx) => {
+    const secCount = b.snapshot && b.snapshot.sections && b.snapshot.sections[0] && b.snapshot.sections[0].values
+      ? b.snapshot.sections[0].values.length
+      : 0;
+    const itemCount = b.snapshot && b.snapshot.items && b.snapshot.items[0] && b.snapshot.items[0].values
+      ? b.snapshot.items[0].values.length
+      : 0;
+    const reasonLabel = b.reason === 'daily' ? 'Daily auto' : b.reason === 'pre-import' ? 'Before import' : 'Manual';
+
+    return `
+      <div class="backup-card">
+        <div class="backup-card-top">
+          <div>
+            <div class="backup-title">Backup ${backups.length - idx}</div>
+            <div class="backup-meta">${esc(reasonLabel)} · ${esc(formatBackupDate(b.createdAt))}</div>
+          </div>
+          <span class="backup-pill">${secCount} boards · ${itemCount} items</span>
+        </div>
+        <div class="backup-actions">
+          <button class="btn btn-primary btn-sm" onclick="restoreBackup('${escAttr(b.id)}')">Restore</button>
+          <button class="btn btn-ghost btn-sm backup-delete-btn" onclick="deleteBackup('${escAttr(b.id)}')">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  html += `<div class="backup-list">${cards}</div>`;
+  body.innerHTML = html;
+}
+
+function selectBackupTab() {
+  activeView = 'backup';
+  expandedItems.clear();
+  sectionSearchTerm = '';
+  renderSidebar();
+  renderMain();
+  closeSidebar();
+  refreshBackupFiles().then(() => {
+    if (activeView === 'backup') {
+      renderSidebar();
+      renderMain();
+    }
+  });
+}
+
+async function restoreBackup(backupId) {
+  const backups = await refreshBackupFiles();
+  const found = backups.find(b => b && b.id === backupId);
+  if (!found) {
+    toast('Backup not found');
+    return;
+  }
+
+  if (!confirm('Restore this backup? Current data will be replaced.')) return;
+
+  try {
+    applySnapshot(found.snapshot);
+    const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
+    activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
+    activeView = 'board';
+    persist();
+    renderSidebar();
+    renderMain();
+    toast('Backup restored');
+  } catch (err) {
+    toast('Restore failed: ' + err.message);
+  }
+}
+
+async function deleteBackup(backupId) {
+  if (!backupFolderHandle) {
+    toast('No backup folder connected');
+    return;
+  }
+
+  const backups = await refreshBackupFiles();
+  const found = backups.find(b => b && b.id === backupId);
+  if (!found) {
+    toast('Backup not found');
+    return;
+  }
+
+  if (!confirm('Delete this backup?')) return;
+
+  try {
+    await backupFolderHandle.removeEntry(found.fileName);
+  } catch (e) {
+    toast('Could not delete backup file');
+    return;
+  }
+
+  await refreshBackupFiles();
+  renderSidebar();
+  if (activeView === 'backup') renderMain();
+  toast('Backup deleted');
+}
+
 
 /* ================================================================
    Sidebar Rendering
@@ -160,17 +627,26 @@ function icsEscape(str) {
 function renderSidebar() {
   const nav = document.getElementById('sidebarNav');
   const sections = db.exec('SELECT id, name, color, type FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
+  const backupsCount = backupFilesCache.length;
+
+  let html = `
+    <div class="nav-label">Utilities</div>
+    <div class="nav-item ${activeView === 'backup' ? 'active' : ''}" onclick="selectBackupTab()">
+      <div class="nav-dot" style="background:var(--accent)"></div>
+      <span class="nav-name">Backups</span>
+      <span class="nav-count">${backupsCount}</span>
+    </div>
+    <div class="nav-divider"></div>`;
 
   if (!sections.length || !sections[0].values.length) {
-    nav.innerHTML = '<div class="nav-label">No boards yet</div>';
+    html += '<div class="nav-label">No boards yet</div>';
+    nav.innerHTML = html;
     return;
   }
 
   const allRows  = sections[0].values;
   const taskRows = allRows.filter(r => (r[3] || 'task') === 'task');
   const refRows  = allRows.filter(r => r[3] === 'reference');
-
-  let html = '';
 
   // ── Task Boards ──
   html += '<div class="nav-label">📋 Task Boards</div>';
@@ -260,6 +736,11 @@ function renderMain() {
   const header    = document.getElementById('mainHeader');
   const body      = document.getElementById('mainBody');
   const searchTerm = sectionSearchTerm;
+
+  if (activeView === 'backup') {
+    renderBackupTab();
+    return;
+  }
 
   // No section selected
   if (!activeSectionId) {
@@ -620,6 +1101,7 @@ function toggleKanbanCol(col) {
    ================================================================ */
 
 function selectSection(id) {
+  activeView = 'board';
   activeSectionId = id;
   localStorage.setItem('dashora_active_section', id);
   expandedItems.clear();
@@ -800,6 +1282,7 @@ function clearSectionSearch() {
 function onSearch() {
   const term = document.getElementById('searchBox').value.toLowerCase();
   if (term.length > 0) {
+    activeView = 'board';
     renderSearchResults(term);
   } else {
     renderSidebar();
@@ -1252,11 +1735,13 @@ function importData(event) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.sections || !data.items) throw new Error('Invalid format');
       if (!confirm('This will replace ALL current data. Continue?')) return;
+
+      await createBackup('pre-import', { silent: true, force: true });
 
       db.run('DELETE FROM items');
       db.run('DELETE FROM sections');
@@ -1284,6 +1769,7 @@ function importData(event) {
 
       const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
       activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
+      activeView = 'board';
 
       persist();
       renderSidebar();
@@ -1722,3 +2208,4 @@ function dismissReminder(id, dueDate) {
    ================================================================ */
 
 initDB();
+initBackupSystem();

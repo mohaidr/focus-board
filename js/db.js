@@ -241,6 +241,11 @@ async function initDB() {
   // Auto-delete old completed tasks if enabled
   autoDeleteCompletedTasks();
 
+  // Keep one backup per day (retention managed in app.js)
+  if (typeof ensureDailyBackup === 'function') {
+    ensureDailyBackup();
+  }
+
   persist();
 
   // Restore last active section, or fall back to first
@@ -266,6 +271,10 @@ async function initDB() {
 
   // Periodically check for recurring resets and reminders (every 60s)
   setInterval(() => {
+    if (typeof ensureDailyBackup === 'function') {
+      ensureDailyBackup();
+    }
+
     const todayStr = new Date().toISOString().slice(0, 10);
     const lastReset = localStorage.getItem('Dashora_last_reset');
     if (lastReset !== todayStr) {
