@@ -11,6 +11,8 @@ Think of it as a calm command center for your brain:
 
 No account. No cloud lock-in. No backend required.
 
+Available online at [Dashora](https://dashora.netlify.app/).
+
 ## Built For ADHD-Friendly Workflows
 
 Dashora is designed to reduce cognitive overhead, not add to it.
