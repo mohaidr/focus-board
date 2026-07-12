@@ -24,7 +24,7 @@ let sectionSearchTerm  = '';
 let taskBoardsVisible  = 5;
 let refBoardsVisible   = 5;
 const SIDEBAR_PAGE_SIZE = 5;
-const BACKUP_RETENTION = 5;
+const BACKUP_RETENTION = 3;
 const BACKUP_META_DB = 'DashoraBackupMetaDB';
 const BACKUP_META_STORE = 'meta';
 const BACKUP_META_KEY = 'folderHandle';
@@ -32,6 +32,9 @@ const BACKUP_FILE_PREFIX = 'dashora-backup-';
 let activeView = 'board';
 let backupFolderHandle = null;
 let backupFilesCache = [];
+let reminderAudioCtx = null;
+let pendingReminderTone = false;
+let pendingReminderToneUrgent = false;
 
 
 /* ================================================================
@@ -111,6 +114,149 @@ function formatDueDate(dateStr) {
 function clearDueDate() {
   document.getElementById('itemDueDate').value = '';
   document.getElementById('dueDateClearBtn').style.display = 'none';
+}
+
+function unlockReminderAudio() {
+  if (!window.AudioContext) return;
+  try {
+    if (!reminderAudioCtx) reminderAudioCtx = new AudioContext();
+    if (reminderAudioCtx.state !== 'running') {
+      reminderAudioCtx.resume().catch(() => {});
+    }
+    if (pendingReminderTone) {
+      playReminderTone(pendingReminderToneUrgent);
+      pendingReminderTone = false;
+      pendingReminderToneUrgent = false;
+    }
+  } catch (e) {
+    reminderAudioCtx = null;
+  }
+}
+
+function playReminderTone(urgent) {
+  if (!window.AudioContext) return false;
+  try {
+    if (!reminderAudioCtx) reminderAudioCtx = new AudioContext();
+    if (!reminderAudioCtx || reminderAudioCtx.state !== 'running') return false;
+
+    const ctx = reminderAudioCtx;
+    const now = ctx.currentTime;
+    const pulses = urgent ? 5 : 3;
+    const spacing = 0.18;
+    const baseFreq = urgent ? 1240 : 1020;
+    const gainValue = urgent ? 0.24 : 0.16;
+
+    for (let i = 0; i < pulses; i++) {
+      const start = now + i * spacing;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = urgent ? 'square' : 'triangle';
+      osc.frequency.value = baseFreq + (i % 2 === 0 ? 0 : 140);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.15);
+    }
+    return true;
+  } catch (e) {
+    // Ignore audio failures to keep reminder loop stable.
+    return false;
+  }
+}
+
+function getNotifiedMap() {
+  try {
+    const raw = localStorage.getItem('dashora_notified_map');
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function cleanupNotifiedMap(mapObj) {
+  const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+  const cleaned = {};
+  for (const k of Object.keys(mapObj)) {
+    if ((mapObj[k] || 0) >= cutoff) cleaned[k] = mapObj[k];
+  }
+  return cleaned;
+}
+
+function markNotified(key) {
+  const mapObj = cleanupNotifiedMap(getNotifiedMap());
+  mapObj[key] = Date.now();
+  localStorage.setItem('dashora_notified_map', JSON.stringify(mapObj));
+}
+
+function wasRecentlyNotified(key, minGapMs = 20 * 60 * 1000) {
+  const mapObj = cleanupNotifiedMap(getNotifiedMap());
+  localStorage.setItem('dashora_notified_map', JSON.stringify(mapObj));
+  const last = mapObj[key] || 0;
+  return (Date.now() - last) < minGapMs;
+}
+
+async function sendSystemReminder(reminderKey, title, body, urgent) {
+  const canNotify = 'Notification' in window;
+  if (!canNotify || Notification.permission !== 'granted') return;
+
+  const tag = `dashora-${reminderKey}`;
+  const options = {
+    body,
+    tag,
+    renotify: true,
+    requireInteraction: !!urgent,
+    silent: false,
+    badge: 'icons/icon-192.svg',
+    icon: 'icons/icon-192.svg',
+    data: { reminderKey }
+  };
+
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, options);
+    } else {
+      const n = new Notification(title, options);
+      n.onclick = () => window.focus();
+    }
+  } catch (e) {
+    // Ignore notification errors to keep reminder loop stable.
+  }
+}
+
+async function triggerReminderAttention(reminderKey, title, body, urgent) {
+  if (wasRecentlyNotified(reminderKey)) return;
+
+  const hidden = document.visibilityState === 'hidden';
+  const unfocused = typeof document.hasFocus === 'function' ? !document.hasFocus() : hidden;
+  const needsAttention = hidden || unfocused;
+
+  let notificationSent = false;
+  if (needsAttention) {
+    await sendSystemReminder(reminderKey, title, body, urgent);
+    notificationSent = true;
+  }
+
+  const played = playReminderTone(urgent);
+  if (!played) {
+    pendingReminderTone = true;
+    pendingReminderToneUrgent = pendingReminderToneUrgent || urgent;
+    if (urgent && !notificationSent) {
+      // Fallback when tab is focused but audio is still locked after refresh.
+      await sendSystemReminder(reminderKey, title, body, true);
+    }
+  }
+  if (navigator.vibrate && needsAttention) {
+    navigator.vibrate(urgent ? [260, 100, 260] : [160, 80, 160]);
+  }
+
+  markNotified(reminderKey);
 }
 
 function addToCalendar(event, id) {
@@ -237,6 +383,7 @@ function normalizeBackupRecord(raw, fileName) {
     reason: raw.reason || 'manual',
     createdAt: raw.createdAt || new Date().toISOString(),
     dayKey: raw.dayKey || dayKey(new Date(raw.createdAt || Date.now())),
+    protected: raw.protected === true,
     snapshot: raw.snapshot,
   };
 }
@@ -280,7 +427,8 @@ async function refreshBackupFiles() {
 async function pruneBackupFiles() {
   if (!backupFolderHandle) return;
   const backups = await refreshBackupFiles();
-  const extra = backups.slice(BACKUP_RETENTION);
+  const regularBackups = backups.filter(b => !b.protected);
+  const extra = regularBackups.slice(BACKUP_RETENTION);
   for (const b of extra) {
     try {
       await backupFolderHandle.removeEntry(b.fileName);
@@ -291,10 +439,19 @@ async function pruneBackupFiles() {
   await refreshBackupFiles();
 }
 
-function buildBackupFileName(reason, createdAt) {
+function buildBackupFileName(reason, createdAt, isProtected = false) {
   const safeReason = (reason || 'manual').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
-  const stamp = createdAt.replace(/[:.]/g, '-');
-  return `${BACKUP_FILE_PREFIX}${stamp}-${safeReason}.json`;
+  const d = new Date(createdAt);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  const stamp = `${y}-${m}-${day}_${hh}-${mm}-${ss}-${ms}`;
+  const suffix = isProtected ? '-protected' : '';
+  return `${BACKUP_FILE_PREFIX}${stamp}-${safeReason}${suffix}.json`;
 }
 
 async function initBackupSystem() {
@@ -400,11 +557,12 @@ async function createBackup(reason, options = {}) {
     reason: reason || 'manual',
     createdAt,
     dayKey: key,
+    protected: false,
     snapshot: snapshotCurrentData(),
   };
 
   try {
-    const fileName = buildBackupFileName(record.reason, record.createdAt);
+    const fileName = buildBackupFileName(record.reason, record.createdAt, record.protected === true);
     const fileHandle = await backupFolderHandle.getFileHandle(fileName, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(JSON.stringify(record, null, 2));
@@ -482,12 +640,14 @@ function renderBackupTab() {
   const canUseFS = isFileSystemBackupSupported();
   const folderConnected = !!backupFolderHandle;
   const folderName = folderConnected ? backupFolderHandle.name : 'No folder selected';
+  const protectedCount = backups.filter(b => b.protected).length;
+  const regularCount = backups.length - protectedCount;
 
   header.innerHTML = `
     <div class="main-header-left">
       <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
       <h2>Backups</h2>
-      <span class="item-total">${backups.length} file${backups.length !== 1 ? 's' : ''}</span>
+      <span class="item-total">${backups.length} file${backups.length !== 1 ? 's' : ''} · ${protectedCount} protected</span>
     </div>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-ghost btn-sm" onclick="selectBackupFolder()">&#128193; Choose folder</button>
@@ -506,18 +666,18 @@ function renderBackupTab() {
   if (!folderConnected) {
     body.innerHTML = `<div class="empty-state">
       <h3>Choose a backup folder</h3>
-      <p>Backups are saved as JSON files on disk. Only the latest ${BACKUP_RETENTION} files are kept automatically.</p>
+      <p>Backups are saved as JSON files on disk. Only the latest ${BACKUP_RETENTION} regular backups are kept automatically; protected backups are excluded.</p>
       <button class="btn btn-primary" onclick="selectBackupFolder()">Select folder</button>
     </div>`;
     return;
   }
 
-  let html = `<div class="backup-folder-note">Folder: ${esc(folderName)}</div>`;
+  let html = `<div class="backup-folder-note">Folder: ${esc(folderName)} · ${regularCount} regular · ${protectedCount} protected</div>`;
 
   if (!backups.length) {
     body.innerHTML = `${html}<div class="empty-state">
       <h3>No backups yet</h3>
-      <p>Daily backups are created automatically and only the latest ${BACKUP_RETENTION} files are kept.</p>
+      <p>Daily backups are created automatically and only the latest ${BACKUP_RETENTION} regular backups are kept.</p>
       <button class="btn btn-primary" onclick="createBackup('manual')">Create first backup</button>
     </div>`;
     return;
@@ -530,7 +690,15 @@ function renderBackupTab() {
     const itemCount = b.snapshot && b.snapshot.items && b.snapshot.items[0] && b.snapshot.items[0].values
       ? b.snapshot.items[0].values.length
       : 0;
-    const reasonLabel = b.reason === 'daily' ? 'Daily auto' : b.reason === 'pre-import' ? 'Before import' : 'Manual';
+    const reasonLabel = b.reason === 'daily'
+      ? 'Daily auto'
+      : b.reason === 'pre-import'
+      ? 'Before import'
+      : b.reason === 'new-item'
+      ? 'New item'
+      : b.reason === 'new-board'
+      ? 'New board'
+      : 'Manual';
 
     return `
       <div class="backup-card">
@@ -539,10 +707,11 @@ function renderBackupTab() {
             <div class="backup-title">Backup ${backups.length - idx}</div>
             <div class="backup-meta">${esc(reasonLabel)} · ${esc(formatBackupDate(b.createdAt))}</div>
           </div>
-          <span class="backup-pill">${secCount} boards · ${itemCount} items</span>
+          <span class="backup-pill ${b.protected ? 'backup-pill-protected' : ''}">${b.protected ? 'Protected · ' : ''}${secCount} boards · ${itemCount} items</span>
         </div>
         <div class="backup-actions">
           <button class="btn btn-primary btn-sm" onclick="restoreBackup('${escAttr(b.id)}')">Restore</button>
+          <button class="btn btn-ghost btn-sm backup-protect-btn" onclick="setBackupProtected('${escAttr(b.id)}', ${b.protected ? 'false' : 'true'})">${b.protected ? 'Unprotect' : 'Protect'}</button>
           <button class="btn btn-ghost btn-sm backup-delete-btn" onclick="deleteBackup('${escAttr(b.id)}')">Delete</button>
         </div>
       </div>`;
@@ -617,6 +786,53 @@ async function deleteBackup(backupId) {
   renderSidebar();
   if (activeView === 'backup') renderMain();
   toast('Backup deleted');
+}
+
+async function setBackupProtected(backupId, shouldProtect) {
+  if (!backupFolderHandle) {
+    toast('No backup folder connected');
+    return;
+  }
+
+  const backups = await refreshBackupFiles();
+  const found = backups.find(b => b && b.id === backupId);
+  if (!found) {
+    toast('Backup not found');
+    return;
+  }
+
+  try {
+    const payload = {
+      reason: found.reason,
+      createdAt: found.createdAt,
+      dayKey: found.dayKey,
+      protected: shouldProtect === true,
+      snapshot: found.snapshot,
+    };
+
+    const nextFileName = buildBackupFileName(payload.reason, payload.createdAt, payload.protected);
+    const nextHandle = await backupFolderHandle.getFileHandle(nextFileName, { create: true });
+    const writable = await nextHandle.createWritable();
+    await writable.write(JSON.stringify(payload, null, 2));
+    await writable.close();
+
+    if (nextFileName !== found.fileName) {
+      await backupFolderHandle.removeEntry(found.fileName);
+    }
+  } catch (e) {
+    toast('Could not update backup protection');
+    return;
+  }
+
+  if (shouldProtect) {
+    await refreshBackupFiles();
+  } else {
+    await pruneBackupFiles();
+  }
+
+  renderSidebar();
+  if (activeView === 'backup') renderMain();
+  toast(shouldProtect ? 'Backup protected' : 'Backup unprotected');
 }
 
 
@@ -858,7 +1074,7 @@ function renderMain() {
       }
       html += '</div>';
       if (!searchTerm) {
-        html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">+ Add Item</div>`;
+        html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">Add Item</div>`;
       }
     }
     html += '</div>';
@@ -1471,11 +1687,13 @@ function renderBoardTypeOptions() {
 function saveSection() {
   const name   = document.getElementById('sectionName').value.trim();
   const editId = document.getElementById('editSectionId').value;
+  let createdBoard = false;
   if (!name) { toast('Board name is required'); return; }
 
   if (editId) {
     db.run('UPDATE sections SET name = ?, color = ?, type = ? WHERE id = ?', [name, selectedColor, selectedBoardType, parseInt(editId)]);
   } else {
+    createdBoard = true;
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM sections');
     db.run('INSERT INTO sections (name, color, sort_order, type) VALUES (?, ?, ?, ?)',
       [name, selectedColor, maxOrder[0].values[0][0] + 1, selectedBoardType]);
@@ -1486,6 +1704,11 @@ function saveSection() {
   closeModal('sectionModal');
   renderSidebar();
   renderMain();
+
+  if (createdBoard) {
+    createBackup('new-board', { silent: true }).catch(() => {});
+  }
+
   toast(editId ? 'Board updated' : 'Board created');
 }
 
@@ -1647,6 +1870,7 @@ function saveItem() {
   const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
   const editId    = document.getElementById('editItemId').value;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
+  const createdItem = !editId;
 
   if (!title) { toast('Title is required'); return; }
   if (link && !link.match(/^https?:\/\/.+/i)) {
@@ -1686,6 +1910,11 @@ function saveItem() {
   renderSidebar();
   renderMain();
   checkDueDateNotifications();
+
+  if (createdItem) {
+    createBackup('new-item', { silent: true }).catch(() => {});
+  }
+
   toast(editId ? 'Item updated' : 'Item added');
 }
 
@@ -1818,6 +2047,10 @@ function saveSettings() {
   localStorage.setItem('dashora_autodelete_days', days);
   localStorage.setItem('dashora_notifications', notifEnabled ? 'true' : 'false');
   localStorage.setItem('dashora_autosave', autoSave ? 'true' : 'false');
+
+  if (notifEnabled && 'Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
 
   closeModal('settingsModal');
   toast('Settings saved');
@@ -2134,6 +2367,9 @@ function checkDueDateNotifications() {
       if (dismissed[key]) continue;
 
       const isOverdue = dueDate < localNow;
+      const dueObj = new Date(dueDate);
+      const dueDiffMs = dueObj.getTime() - now.getTime();
+      const isDueNow = Math.abs(dueDiffMs) <= 60 * 1000;
       const label = isOverdue ? 'Overdue' : 'Due soon';
       const cls = isOverdue ? 'reminder-item-overdue' : 'reminder-item-soon';
 
@@ -2145,6 +2381,23 @@ function checkDueDateNotifications() {
             <button class="reminder-banner-close" onclick="dismissReminder(${id}, '${escAttr(dueDate)}')">&times;</button>
           </div>
         </div>`;
+
+      triggerReminderAttention(
+        key,
+        `${label}: ${title}`,
+        `${formatDueDate(dueDate)}`,
+        isOverdue
+      );
+
+      if (isDueNow) {
+        // Separate key guarantees a dedicated audible alert at exact due time.
+        triggerReminderAttention(
+          `${key}:due-now`,
+          `Due now: ${title}`,
+          `${formatDueDate(dueDate)}`,
+          true
+        );
+      }
     }
   }
 
@@ -2190,6 +2443,13 @@ function checkDueDateNotifications() {
             <button class="reminder-banner-close" onclick="dismissReminder('recur:${id}', '${escAttr(todayStr + ':' + recurTime)}')">&times;</button>
           </div>
         </div>`;
+
+      triggerReminderAttention(
+        key,
+        `${label}: ${title}`,
+        `${formatRecurringTime(recurTime)}`,
+        isOverdue
+      );
     }
   }
 }
@@ -2209,3 +2469,6 @@ function dismissReminder(id, dueDate) {
 
 initDB();
 initBackupSystem();
+
+window.addEventListener('pointerdown', unlockReminderAudio, { once: true });
+window.addEventListener('keydown', unlockReminderAudio, { once: true });
