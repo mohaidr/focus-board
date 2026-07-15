@@ -220,6 +220,18 @@ function autoDeleteCompletedTasks() {
   const days = parseInt(localStorage.getItem('dashora_autodelete_days') || '7', 10);
   if (isNaN(days) || days < 1) return;
 
+  // Remove follow-ups belonging to items that are about to be auto-deleted
+  db.run(
+    `DELETE FROM followups
+     WHERE item_id IN (
+       SELECT id FROM items
+       WHERE status = 2
+         AND completed_at IS NOT NULL
+         AND datetime(completed_at) <= datetime('now', '-' || ? || ' days')
+     )`,
+    [days]
+  );
+
   // Delete done items whose completed_at is older than the threshold
   db.run(
     `DELETE FROM items
