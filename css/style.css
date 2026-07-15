@@ -482,7 +482,7 @@ body {
   word-break: break-all;
   margin-bottom: 12px;
 }
-.item-detail-link a { color: var(--accent); text-decoration: none; }
+.item-detail-link a { color: var(--accent); text-decoration: none; font-size: 20px; }
 .item-detail-link a:hover { text-decoration: underline; }
 
 .item-detail-toolbar {
