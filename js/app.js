@@ -515,6 +515,7 @@ function snapshotCurrentData() {
   return {
     sections: db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC'),
     items: db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id'),
+    followups: db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id'),
   };
 }
 
@@ -602,6 +603,7 @@ function applySnapshot(snapshot) {
 
   db.run('DELETE FROM items');
   db.run('DELETE FROM sections');
+  db.run('DELETE FROM followups');
 
   if (snapshot.sections.length && snapshot.sections[0].values) {
     const cols = snapshot.sections[0].columns
@@ -624,6 +626,18 @@ function applySnapshot(snapshot) {
       : '?, ?, ?, ?, ?, ?, ?, ?';
     for (const row of snapshot.items[0].values) {
       db.run(`INSERT INTO items (${cols}) VALUES (${ph})`, row);
+    }
+  }
+
+  if (snapshot.followups && snapshot.followups.length && snapshot.followups[0].values) {
+    const cols = snapshot.followups[0].columns
+      ? snapshot.followups[0].columns.join(', ')
+      : 'id, item_id, text, completed, sort_order, created_at';
+    const ph = snapshot.followups[0].columns
+      ? snapshot.followups[0].columns.map(() => '?').join(', ')
+      : '?, ?, ?, ?, ?, ?';
+    for (const row of snapshot.followups[0].values) {
+      db.run(`INSERT INTO followups (${cols}) VALUES (${ph})`, row);
     }
   }
 }
@@ -1146,7 +1160,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
       <div class="item-detail">
         ${desc
           ? `<div class="item-detail-desc">${esc(desc)}</div>`
-          : (!sketchData ? '<div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">No description</div>' : '')}
+          : (!sketchData ? '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>' : '')}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
@@ -1223,6 +1237,16 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
   if (st === 1) { checkboxCls = 'in-progress'; checkboxContent = '&#9654;'; }
   else if (st === 2) { checkboxCls = 'checked'; checkboxContent = '&#10003;'; }
 
+  // Follow-up indicator badge (count of open follow-ups)
+  const fuRes = db.exec('SELECT COUNT(*), COALESCE(SUM(completed), 0) FROM followups WHERE item_id = ?', [iid]);
+  const fuTotal = (fuRes.length && fuRes[0].values[0][0]) ? fuRes[0].values[0][0] : 0;
+  const fuDone = (fuRes.length && fuRes[0].values[0][1]) ? fuRes[0].values[0][1] : 0;
+  let followupBadge = '';
+  if (fuTotal > 0) {
+    const allDone = fuDone >= fuTotal;
+    followupBadge = `<span class="item-followups ${allDone ? 'followups-done' : ''}" title="${fuDone}/${fuTotal} follow-ups done">&#128257; ${fuDone}/${fuTotal}</span>`;
+  }
+
   let detail = '';
   if (isExpanded) {
     const recurSelect = `<select class="recurring-select" onchange="setRecurring(event, ${iid}, this.value)">
@@ -1246,10 +1270,11 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
       <div class="item-detail">
         ${desc
           ? `<div class="item-detail-desc">${esc(desc)}</div>`
-          : '<div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">No description</div>'}
+          : '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>'}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
+        ${renderFollowups(iid)}
         <div class="item-detail-toolbar">
           <div class="item-status-btns">
             <button class="btn btn-ghost btn-sm ${st === 0 ? 'btn-status-active' : ''}" onclick="setStatus(event, ${iid}, 0)">\ud83d\udccb To Do</button>
@@ -1277,7 +1302,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${followupBadge}${hasDesc}${hasLink}</div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
@@ -1286,8 +1311,70 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
 
 
 /* ================================================================
-   Expand / Collapse
+   Follow-ups
    ================================================================ */
+
+function renderFollowups(iid) {
+  const res = db.exec('SELECT id, text, completed FROM followups WHERE item_id = ? ORDER BY completed ASC, sort_order ASC, id ASC', [iid]);
+  const rows = (res.length && res[0].values) ? res[0].values : [];
+
+  let list = '';
+  if (rows.length) {
+    list = rows.map(([fid, text, completed]) => `
+      <div class="followup ${completed ? 'followup-done' : ''}">
+        <div class="followup-check" onclick="toggleFollowup(event, ${fid}, ${iid})">${completed ? '&#10003;' : ''}</div>
+        <span class="followup-text">${esc(text)}</span>
+        <button class="followup-del" title="Delete follow-up" onclick="deleteFollowup(event, ${fid})">&#10005;</button>
+      </div>`).join('');
+  } else {
+    list = '<div class="followup-empty">No follow-ups yet</div>';
+  }
+
+  return `
+    <div class="item-followups-section" onclick="event.stopPropagation()">
+      <div class="followups-header">&#128257; Follow-ups</div>
+      <div class="followups-list">${list}</div>
+      <div class="followup-add">
+        <input type="text" class="followup-input" placeholder="Add a follow-up..."
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addFollowup(event, ${iid});}">
+        <button class="btn btn-ghost btn-sm" onclick="addFollowup(event, ${iid})">Add</button>
+      </div>
+    </div>`;
+}
+
+function addFollowup(event, iid) {
+  event.stopPropagation();
+  const wrap = event.target.closest('.followup-add');
+  const input = wrap ? wrap.querySelector('.followup-input') : null;
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+
+  const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM followups WHERE item_id = ?', [iid]);
+  db.run('INSERT INTO followups (item_id, text, sort_order) VALUES (?, ?, ?)',
+    [iid, text, maxOrder[0].values[0][0] + 1]);
+  persist();
+  renderMain();
+  toast('Follow-up added');
+}
+
+function toggleFollowup(event, fid, iid) {
+  event.stopPropagation();
+  const row = db.exec('SELECT completed FROM followups WHERE id = ?', [fid]);
+  const cur = (row.length && row[0].values[0][0]) ? row[0].values[0][0] : 0;
+  db.run('UPDATE followups SET completed = ? WHERE id = ?', [cur ? 0 : 1, fid]);
+  persist();
+  renderMain();
+}
+
+function deleteFollowup(event, fid) {
+  event.stopPropagation();
+  db.run('DELETE FROM followups WHERE id = ?', [fid]);
+  persist();
+  renderMain();
+  toast('Follow-up deleted');
+}
+
 
 function toggleExpand(iid) {
   expandedItems.has(iid) ? expandedItems.delete(iid) : expandedItems.add(iid);
@@ -1714,6 +1801,7 @@ function saveSection() {
 
 function deleteSection(id) {
   if (!confirm('Delete this board and all its items?')) return;
+  db.run('DELETE FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
   db.run('DELETE FROM items WHERE section_id = ?', [id]);
   db.run('DELETE FROM sections WHERE id = ?', [id]);
 
@@ -1921,6 +2009,7 @@ function saveItem() {
 function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
   expandedItems.delete(id);
+  db.run('DELETE FROM followups WHERE item_id = ?', [id]);
   db.run('DELETE FROM items WHERE id = ?', [id]);
   persist();
   renderSidebar();
@@ -1945,9 +2034,10 @@ function closeModal(id) {
 function exportData() {
   const sections = db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   const items    = db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id');
+  const followups = db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id');
 
   const blob = new Blob(
-    [JSON.stringify({ sections, items, exported: new Date().toISOString() }, null, 2)],
+    [JSON.stringify({ sections, items, followups, exported: new Date().toISOString() }, null, 2)],
     { type: 'application/json' }
   );
 
@@ -1974,6 +2064,7 @@ function importData(event) {
 
       db.run('DELETE FROM items');
       db.run('DELETE FROM sections');
+      db.run('DELETE FROM followups');
 
       if (data.sections.length && data.sections[0].values) {
         const cols = data.sections[0].columns
@@ -1994,6 +2085,17 @@ function importData(event) {
           : '?, ?, ?, ?, ?, ?, ?, ?';
         for (const row of data.items[0].values)
           db.run(`INSERT INTO items (${cols}) VALUES (${ph})`, row);
+      }
+
+      if (data.followups && data.followups.length && data.followups[0].values) {
+        const cols = data.followups[0].columns
+          ? data.followups[0].columns.join(', ')
+          : 'id, item_id, text, completed, sort_order, created_at';
+        const ph = data.followups[0].columns
+          ? data.followups[0].columns.map(() => '?').join(', ')
+          : '?, ?, ?, ?, ?, ?';
+        for (const row of data.followups[0].values)
+          db.run(`INSERT INTO followups (${cols}) VALUES (${ph})`, row);
       }
 
       const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');

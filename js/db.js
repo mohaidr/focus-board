@@ -132,6 +132,19 @@ function createTables() {
   } catch (e) {
     db.run("ALTER TABLE items ADD COLUMN recurring_time TEXT DEFAULT NULL");
   }
+
+  // Follow-ups attached to task items
+  db.run(`
+    CREATE TABLE IF NOT EXISTS followups (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id    INTEGER NOT NULL,
+      text       TEXT NOT NULL,
+      completed  INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+    )
+  `);
 }
 
 // ── Seed Data ──
