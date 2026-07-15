@@ -1355,6 +1355,7 @@ function addFollowup(event, iid) {
     [iid, text, maxOrder[0].values[0][0] + 1]);
   persist();
   renderMain();
+  createBackup('new-followup', { silent: true }).catch(() => {});
   toast('Follow-up added');
 }
 
