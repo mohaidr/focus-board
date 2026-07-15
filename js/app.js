@@ -12,6 +12,7 @@ const COLORS = [
 let db              = null;   // set by initDB()
 let activeSectionId = null;
 let expandedItems   = new Set();
+let editingFollowupId = null;
 let dragItemId      = null;
 let dragSectionId   = null;
 let doneCollapsed      = false;
@@ -1320,12 +1321,24 @@ function renderFollowups(iid) {
 
   let list = '';
   if (rows.length) {
-    list = rows.map(([fid, text, completed]) => `
+    list = rows.map(([fid, text, completed]) => {
+      if (fid === editingFollowupId) {
+        return `
+      <div class="followup followup-editing">
+        <input type="text" class="followup-input followup-edit-input" value="${escAttr(text)}"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();saveFollowupEdit(event, ${fid}, ${iid});}else if(event.key==='Escape'){cancelFollowupEdit(event);}">
+        <button class="btn btn-ghost btn-sm" onclick="saveFollowupEdit(event, ${fid}, ${iid})">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelFollowupEdit(event)">Cancel</button>
+      </div>`;
+      }
+      return `
       <div class="followup ${completed ? 'followup-done' : ''}">
         <div class="followup-check" onclick="toggleFollowup(event, ${fid}, ${iid})">${completed ? '&#10003;' : ''}</div>
-        <span class="followup-text">${esc(text)}</span>
+        <span class="followup-text" ondblclick="startFollowupEdit(event, ${fid})">${esc(text)}</span>
+        <button class="followup-edit" title="Edit follow-up" onclick="startFollowupEdit(event, ${fid})">&#9998;</button>
         <button class="followup-del" title="Delete follow-up" onclick="deleteFollowup(event, ${fid})">&#10005;</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } else {
     list = '<div class="followup-empty">No follow-ups yet</div>';
   }
@@ -1374,6 +1387,40 @@ function deleteFollowup(event, fid) {
   persist();
   renderMain();
   toast('Follow-up deleted');
+}
+
+function startFollowupEdit(event, fid) {
+  event.stopPropagation();
+  editingFollowupId = fid;
+  renderMain();
+  requestAnimationFrame(() => {
+    const input = document.querySelector('.followup-edit-input');
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  });
+}
+
+function saveFollowupEdit(event, fid, iid) {
+  event.stopPropagation();
+  const wrap = event.target.closest('.followup');
+  const input = wrap ? wrap.querySelector('.followup-edit-input') : null;
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+
+  db.run('UPDATE followups SET text = ? WHERE id = ?', [text, fid]);
+  editingFollowupId = null;
+  persist();
+  renderMain();
+  toast('Follow-up updated');
+}
+
+function cancelFollowupEdit(event) {
+  if (event) event.stopPropagation();
+  editingFollowupId = null;
+  renderMain();
 }
 
 
