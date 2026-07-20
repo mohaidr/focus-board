@@ -1168,6 +1168,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
         ${sketchPreview}
         <div class="item-detail-actions" style="margin-top:10px;">
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
         </div>
       </div>`;
@@ -1284,6 +1285,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
           </div>
           <div class="item-detail-actions">
             <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
             ${recurSelect}
             ${dueDate ? `<button class="btn btn-ghost btn-sm" onclick="addToCalendar(event, ${iid})">&#128197; Add to Calendar</button>` : ''}
             <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
@@ -2063,6 +2065,35 @@ function deleteItem(id) {
   renderSidebar();
   renderMain();
   toast('Item deleted');
+}
+
+function copyItem(event, id) {
+  event.stopPropagation();
+  const res = db.exec('SELECT title, description, link FROM items WHERE id = ?', [id]);
+  if (!res.length) { toast('Nothing to copy'); return; }
+
+  const [title, desc, link] = res[0].values[0];
+  const text = [title, desc, link].filter(Boolean).join('\n').trim();
+  if (!text) { toast('Nothing to copy'); return; }
+
+  const done = () => toast('Copied to clipboard');
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); }
+    catch (e) { toast('Copy failed'); }
+    document.body.removeChild(ta);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+  } else {
+    fallback();
+  }
 }
 
 
