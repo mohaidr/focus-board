@@ -441,7 +441,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.15s;
 }
 .item:hover .item-quick-actions,
@@ -469,7 +469,7 @@ body {
   color: var(--accent);
 }
 
-/* Touch devices have no hover, so keep quick actions visible */
+/* Touch devices have no hover, so keep quick actions fully visible */
 @media (hover: none) {
   .item-quick-actions {
     opacity: 1;
