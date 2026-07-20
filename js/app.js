@@ -1186,6 +1186,10 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
         <span class="ref-item-icon">${icon}</span>
         <span class="item-title-text">${esc(title)}</span>
         <div class="item-indicators">${hasSketch}${hasDesc}${hasLink}</div>
+        <div class="item-quick-actions">
+          <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
+          <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
+        </div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
@@ -1306,6 +1310,10 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <span class="item-title-text">${esc(title)}</span>
         <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${followupBadge}${hasDesc}${hasLink}</div>
+        <div class="item-quick-actions">
+          <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
+          <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
+        </div>
         <span class="expand-arrow">&#9654;</span>
       </div>
       ${detail}
