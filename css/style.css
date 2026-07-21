@@ -504,7 +504,7 @@ body {
 }
 
 .item-detail-desc {
-  font-size: 20px;
+  font-size: 15px;
   color: var(--text-muted);
   line-height: 1.7;
   white-space: pre-wrap;
@@ -572,7 +572,7 @@ body {
 }
 
 .followups-header {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -588,7 +588,7 @@ body {
 }
 
 .followup-empty {
-  font-size: 20px;
+  font-size: 15px;
   color: var(--text-muted);
   font-style: italic;
   padding: 4px 0;
@@ -669,7 +669,7 @@ body {
   gap: 8px;
 }
 .followup-edit-input {
-  font-size: 20px;
+  font-size: 15px;
 }
 
 .followup-add {
@@ -684,7 +684,7 @@ body {
   border-radius: 8px;
   padding: 8px 12px;
   color: var(--text);
-  font-size: 20px;
+  font-size: 15px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
