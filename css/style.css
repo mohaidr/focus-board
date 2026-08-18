@@ -1208,6 +1208,16 @@ body {
 }
 .password-source-options input { accent-color: var(--accent); }
 .secret-warning { color: var(--warning); }
+.encryption-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+#itemEncryptionPasswordGroup { margin-top: 14px; }
 
 .settings-divider {
   height: 1px;

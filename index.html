@@ -133,7 +133,17 @@
           <input type="password" id="itemPassword" autocomplete="new-password" placeholder="Leave blank to keep the current item password">
           <input type="password" id="itemPasswordConfirm" autocomplete="new-password" placeholder="Confirm item password">
         </div>
-        <div class="form-hint secret-warning">Phase one hides content in the app. It is not encrypted in local data, exports, or backups yet.</div>
+        <label class="toggle-label encryption-toggle">
+          <input type="checkbox" id="itemEncrypted" onchange="onItemEncryptionChange()">
+          <span class="toggle-slider"></span>
+          <span>Encrypt saved content with AES-GCM</span>
+        </label>
+        <div class="form-group" id="itemEncryptionPasswordGroup" style="display:none;">
+          <label>Password For This Save</label>
+          <input type="password" id="itemEncryptionPassword" autocomplete="current-password" placeholder="Required to encrypt without caching the key">
+          <div class="form-hint no-indent">When setting a new item password above, that password is used automatically.</div>
+        </div>
+        <div class="form-hint no-indent secret-warning" id="itemProtectionHint">Without encryption, protection only hides content inside the app.</div>
       </div>
     </div>
     <div class="form-group" id="recurringGroup">
@@ -259,7 +269,7 @@
         <input type="password" id="confirmGlobalPassword" autocomplete="new-password">
       </div>
       <button class="btn btn-ghost btn-sm" type="button" onclick="setGlobalPassword()">Set password</button>
-      <div class="form-hint no-indent secret-warning">Only a salted password hash is saved. As of now, we do not encrypt protected item content.</div>
+      <div class="form-hint no-indent secret-warning">Only salted password verifiers are saved. Items are encrypted only when their encryption option is enabled.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>

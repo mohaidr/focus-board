@@ -37,7 +37,9 @@ let reminderAudioCtx = null;
 let pendingReminderTone = false;
 let pendingReminderToneUrgent = false;
 const unlockedProtectedItems = new Set();
+const decryptedProtectedItems = new Map();
 const PASSWORD_ITERATIONS = 210000;
+const ENCRYPTION_VERSION = 1;
 
 
 /* ================================================================
@@ -96,7 +98,7 @@ function base64ToBytes(value) {
   return Uint8Array.from(binary, char => char.charCodeAt(0));
 }
 
-async function derivePasswordHash(password, saltBase64) {
+async function derivePasswordHash(password, saltBase64, iterations = PASSWORD_ITERATIONS) {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -107,10 +109,45 @@ async function derivePasswordHash(password, saltBase64) {
   const bits = await crypto.subtle.deriveBits({
     name: 'PBKDF2',
     salt: base64ToBytes(saltBase64),
-    iterations: PASSWORD_ITERATIONS,
+    iterations,
     hash: 'SHA-256',
   }, keyMaterial, 256);
   return bytesToBase64(new Uint8Array(bits));
+}
+
+async function derivePasswordMaterial(password, saltBase64, iterations = PASSWORD_ITERATIONS) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt: base64ToBytes(saltBase64),
+    iterations,
+    hash: 'SHA-256',
+  }, keyMaterial, 512));
+  const verifier = bytesToBase64(bits.slice(0, 32));
+  const encryptionKey = await crypto.subtle.importKey(
+    'raw',
+    bits.slice(32, 64),
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  bits.fill(0);
+  return { verifier, encryptionKey };
+}
+
+function hashesMatch(actualHash, expectedHash) {
+  if (!actualHash || !expectedHash || actualHash.length !== expectedHash.length) return false;
+  let difference = 0;
+  for (let index = 0; index < actualHash.length; index++) {
+    difference |= actualHash.charCodeAt(index) ^ expectedHash.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 async function createPasswordCredential(password) {
@@ -119,28 +156,59 @@ async function createPasswordCredential(password) {
   return {
     hash: await derivePasswordHash(password, saltBase64),
     salt: saltBase64,
+    iterations: PASSWORD_ITERATIONS,
   };
 }
 
-async function passwordMatches(password, expectedHash, salt) {
+async function passwordMatches(password, expectedHash, salt, iterations = PASSWORD_ITERATIONS) {
   if (!password || !expectedHash || !salt) return false;
-  const actualHash = await derivePasswordHash(password, salt);
-  if (actualHash.length !== expectedHash.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actualHash.length; index++) {
-    difference |= actualHash.charCodeAt(index) ^ expectedHash.charCodeAt(index);
-  }
-  return difference === 0;
+  const actualHash = await derivePasswordHash(password, salt, iterations);
+  return hashesMatch(actualHash, expectedHash);
+}
+
+async function encryptPayloadWithKey(payload, encryptionKey) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, encryptionKey, plaintext);
+  plaintext.fill(0);
+  return {
+    encryptedData: bytesToBase64(new Uint8Array(ciphertext)),
+    encryptionIv: bytesToBase64(iv),
+    encryptionVersion: ENCRYPTION_VERSION,
+  };
+}
+
+async function decryptPayloadWithKey(encryptedData, encryptionIv, encryptionKey, version) {
+  if (version !== ENCRYPTION_VERSION) throw new Error('Unsupported encryption version');
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToBytes(encryptionIv) },
+    encryptionKey,
+    base64ToBytes(encryptedData)
+  );
+  return JSON.parse(new TextDecoder().decode(plaintext));
 }
 
 function getItemProtection(itemId) {
   const result = db.exec(
-    'SELECT section_id, protected, password_hash, password_salt FROM items WHERE id = ?',
+    `SELECT section_id, protected, password_hash, password_salt, password_iterations,
+            encrypted, encrypted_data, encryption_iv, encryption_version
+     FROM items WHERE id = ?`,
     [itemId]
   );
   if (!result.length || !result[0].values.length) return null;
-  const [sectionId, isProtected, passwordHash, passwordSalt] = result[0].values[0];
-  return { sectionId, isProtected: isProtected === 1, passwordHash, passwordSalt };
+  const [sectionId, isProtected, passwordHash, passwordSalt, passwordIterations,
+    isEncrypted, encryptedData, encryptionIv, encryptionVersion] = result[0].values[0];
+  return {
+    sectionId,
+    isProtected: isProtected === 1,
+    passwordHash,
+    passwordSalt,
+    passwordIterations: passwordIterations || PASSWORD_ITERATIONS,
+    isEncrypted: isEncrypted === 1,
+    encryptedData,
+    encryptionIv,
+    encryptionVersion,
+  };
 }
 
 function isItemLocked(itemId, isProtected) {
@@ -172,16 +240,41 @@ async function submitItemUnlock() {
     return;
   }
 
+  const password = passwordInput.value;
   const hash = protection.passwordHash || getAppSetting('password_hash');
   const salt = protection.passwordSalt || getAppSetting('password_salt');
-  const valid = await passwordMatches(passwordInput.value, hash, salt);
+  const iterations = protection.passwordHash
+    ? protection.passwordIterations
+    : parseInt(getAppSetting('password_iterations') || PASSWORD_ITERATIONS, 10);
+
+  let valid = false;
+  let decryptedPayload = null;
+  try {
+    if (protection.isEncrypted) {
+      const material = await derivePasswordMaterial(password, salt, iterations);
+      valid = hashesMatch(material.verifier, hash);
+      if (valid) {
+        decryptedPayload = await decryptPayloadWithKey(
+          protection.encryptedData,
+          protection.encryptionIv,
+          material.encryptionKey,
+          protection.encryptionVersion
+        );
+      }
+    } else {
+      valid = await passwordMatches(password, hash, salt, iterations);
+    }
+  } catch (error) {
+    valid = false;
+  }
   passwordInput.value = '';
   if (!valid) {
-    document.getElementById('unlockError').textContent = 'Incorrect password';
+    document.getElementById('unlockError').textContent = 'Incorrect password or damaged encrypted data';
     passwordInput.focus();
     return;
   }
 
+  if (decryptedPayload) decryptedProtectedItems.set(itemId, decryptedPayload);
   unlockedProtectedItems.add(itemId);
   closeUnlockModal();
   runUnlockedItemAction(itemId, action, protection.sectionId);
@@ -207,12 +300,14 @@ function closeUnlockModal() {
 function lockItem(event, itemId) {
   if (event) event.stopPropagation();
   unlockedProtectedItems.delete(itemId);
+  decryptedProtectedItems.delete(itemId);
   expandedItems.delete(itemId);
   renderMain();
 }
 
 function lockAllProtectedItems() {
   unlockedProtectedItems.clear();
+  decryptedProtectedItems.clear();
   expandedItems.clear();
   renderMain();
   toast('Protected items locked');
@@ -803,6 +898,7 @@ function applySnapshot(snapshot) {
   }
 
   unlockedProtectedItems.clear();
+  decryptedProtectedItems.clear();
 }
 
 function formatBackupDate(iso) {
@@ -1182,11 +1278,22 @@ function renderMain() {
   // Load items from DB (with search filter if active)
   const itemsRes = db.exec(
     `SELECT id, title, description, link, completed, recurring, status, due_date,
-            protected, password_hash, password_salt
+            protected, password_hash, password_salt, encrypted, sketch_data
      FROM items WHERE section_id = ? ORDER BY sort_order, id`,
     [sid]
   );
   let rows = itemsRes.length ? itemsRes[0].values : [];
+  rows = rows.map(row => {
+    if (row[11] !== 1) return row;
+    const payload = decryptedProtectedItems.get(row[0]);
+    if (!payload) return row;
+    const hydrated = [...row];
+    hydrated[1] = payload.title || '';
+    hydrated[2] = payload.description || '';
+    hydrated[3] = payload.link || '';
+    hydrated[12] = payload.sketchData || null;
+    return hydrated;
+  });
   if (searchTerm) {
     rows = rows.filter(row => {
       if (boardType === 'reference' && isItemLocked(row[0], row[8])) return false;
@@ -1215,11 +1322,11 @@ function renderMain() {
   if (boardType === 'reference') {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
-    for (const [iid, title, desc, link, completed, recurring, status, dueDate, isProtected] of rows) {
-      // Check if item has sketch data
-      const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
-      const sketchData = (sketchRes.length && sketchRes[0].values[0][0]) ? sketchRes[0].values[0][0] : null;
-      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected);
+    for (const [iid, title, desc, link, completed, recurring, status, dueDate,
+      isProtected, passwordHash, passwordSalt, isEncrypted, sketchData] of rows) {
+      html += renderRefItem(
+        iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted
+      );
     }
     html += '</div>';
     if (!searchTerm) {
@@ -1308,13 +1415,13 @@ function renderMain() {
 
 /* ── Reference Item HTML ── */
 
-function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected) {
+function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected, isEncrypted) {
   if (isItemLocked(iid, isProtected)) {
     return `
       <div class="item ref-item protected-item locked-item" data-item-id="${iid}">
         <div class="item-row" onclick="requestItemUnlock(${iid}, 'expand')">
           <span class="ref-item-icon">&#128274;</span>
-          <span class="item-title-text protected-item-title">Protected item</span>
+          <span class="item-title-text protected-item-title">${isEncrypted ? 'Encrypted item' : 'Protected item'}</span>
           <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();requestItemUnlock(${iid}, 'expand')">Unlock</button>
         </div>
       </div>`;
@@ -1360,7 +1467,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
         <span class="ref-item-icon">${icon}</span>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${isProtected ? '<span title="Password protected">&#128275;</span>' : ''}${hasSketch}${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${isEncrypted ? '<span title="AES-GCM encrypted">&#128272;</span>' : (isProtected ? '<span title="Password protected">&#128275;</span>' : '')}${hasSketch}${hasDesc}${hasLink}</div>
         <div class="item-quick-actions">
           <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
           <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
@@ -1838,13 +1945,23 @@ function renderSearchResults(term) {
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
            i.recurring, i.section_id, s.name, s.color, i.status, i.due_date,
-           s.type, i.protected
+        s.type, i.protected, i.encrypted, i.sketch_data
     FROM items i
     JOIN sections s ON i.section_id = s.id
     ORDER BY s.sort_order, i.sort_order
   `);
 
-  const allRows = res.length ? res[0].values : [];
+  const allRows = (res.length ? res[0].values : []).map(row => {
+    if (row[13] !== 1) return row;
+    const payload = decryptedProtectedItems.get(row[0]);
+    if (!payload) return row;
+    const hydrated = [...row];
+    hydrated[1] = payload.title || '';
+    hydrated[2] = payload.description || '';
+    hydrated[3] = payload.link || '';
+    hydrated[14] = payload.sketchData || null;
+    return hydrated;
+  });
   const rows = allRows.filter(row => {
     if (row[11] === 'reference' && isItemLocked(row[0], row[12])) return false;
     return (row[1] || '').toLowerCase().includes(term)
@@ -1866,7 +1983,8 @@ function renderSearchResults(term) {
   let html = '';
   let currentSection = null;
 
-  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status, dueDate, sectionType, isProtected] of rows) {
+  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor,
+    status, dueDate, sectionType, isProtected, isEncrypted, sketchData] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -1877,9 +1995,9 @@ function renderSearchResults(term) {
         </div>`;
     }
     if (sectionType === 'reference') {
-      const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
-      const sketchData = sketchRes.length && sketchRes[0].values[0][0] ? sketchRes[0].values[0][0] : null;
-      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected);
+      html += renderRefItem(
+        iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected, isEncrypted
+      );
     } else {
       html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate);
     }
@@ -2072,6 +2190,8 @@ function deleteSection(id) {
 function onItemProtectionChange() {
   const enabled = document.getElementById('itemProtected').checked;
   document.getElementById('itemPasswordOptions').style.display = enabled ? '' : 'none';
+  if (!enabled) document.getElementById('itemEncrypted').checked = false;
+  onItemEncryptionChange();
 }
 
 function onItemPasswordSourceChange() {
@@ -2079,9 +2199,18 @@ function onItemPasswordSourceChange() {
   document.getElementById('itemCustomPasswordGroup').style.display = source === 'custom' ? '' : 'none';
 }
 
+function onItemEncryptionChange() {
+  const encrypted = document.getElementById('itemProtected').checked
+    && document.getElementById('itemEncrypted').checked;
+  document.getElementById('itemEncryptionPasswordGroup').style.display = encrypted ? '' : 'none';
+  document.getElementById('itemProtectionHint').textContent = encrypted
+    ? 'Title, description, link, and sketch will be encrypted in app data, exports, and backups.'
+    : 'Without encryption, protection only hides content inside the app.';
+}
+
 async function resolveItemProtection(editId, isReference) {
   if (!isReference || !document.getElementById('itemProtected').checked) {
-    return { isProtected: 0, passwordHash: null, passwordSalt: null };
+    return { isProtected: 0, passwordHash: null, passwordSalt: null, passwordIterations: PASSWORD_ITERATIONS };
   }
 
   const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
@@ -2090,7 +2219,7 @@ async function resolveItemProtection(editId, isReference) {
       toast('Set a global password or choose an item password');
       return null;
     }
-    return { isProtected: 1, passwordHash: null, passwordSalt: null };
+    return { isProtected: 1, passwordHash: null, passwordSalt: null, passwordIterations: PASSWORD_ITERATIONS };
   }
 
   const password = document.getElementById('itemPassword').value;
@@ -2105,7 +2234,12 @@ async function resolveItemProtection(editId, isReference) {
       return null;
     }
     const credential = await createPasswordCredential(password);
-    return { isProtected: 1, passwordHash: credential.hash, passwordSalt: credential.salt };
+    return {
+      isProtected: 1,
+      passwordHash: credential.hash,
+      passwordSalt: credential.salt,
+      passwordIterations: credential.iterations,
+    };
   }
 
   if (editId) {
@@ -2115,12 +2249,50 @@ async function resolveItemProtection(editId, isReference) {
         isProtected: 1,
         passwordHash: existing.passwordHash,
         passwordSalt: existing.passwordSalt,
+        passwordIterations: existing.passwordIterations,
       };
     }
   }
 
   toast('Enter and confirm an item password');
   return null;
+}
+
+async function resolveItemEncryption(protection, payload) {
+  if (!protection.isProtected || !document.getElementById('itemEncrypted').checked) {
+    return {
+      isEncrypted: 0,
+      encryptedData: null,
+      encryptionIv: null,
+      encryptionVersion: null,
+    };
+  }
+
+  const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
+  const newItemPassword = document.getElementById('itemPassword').value;
+  const password = source === 'custom' && newItemPassword
+    ? newItemPassword
+    : document.getElementById('itemEncryptionPassword').value;
+  if (!password) {
+    toast('Enter the password for this encrypted save');
+    return null;
+  }
+
+  const expectedHash = protection.passwordHash || getAppSetting('password_hash');
+  const salt = protection.passwordSalt || getAppSetting('password_salt');
+  const iterations = protection.passwordHash
+    ? protection.passwordIterations
+    : parseInt(getAppSetting('password_iterations') || PASSWORD_ITERATIONS, 10);
+  const material = await derivePasswordMaterial(password, salt, iterations);
+  if (!hashesMatch(material.verifier, expectedHash)) {
+    toast('Password for encryption is incorrect');
+    return null;
+  }
+
+  return {
+    isEncrypted: 1,
+    ...await encryptPayloadWithKey(payload, material.encryptionKey),
+  };
 }
 
 function openItemModal(sectionId, editId) {
@@ -2150,6 +2322,7 @@ function openItemModal(sectionId, editId) {
   document.getElementById('secretProtectionGroup').style.display = isRef ? '' : 'none';
   document.getElementById('itemPassword').value = '';
   document.getElementById('itemPasswordConfirm').value = '';
+  document.getElementById('itemEncryptionPassword').value = '';
 
   // Reset sketch state
   sketchActive = false;
@@ -2164,12 +2337,17 @@ function openItemModal(sectionId, editId) {
     titleEl.textContent = 'Edit Item';
     const row = db.exec(`
       SELECT title, description, link, recurring, sketch_data, due_date,
-             recurring_days, recurring_time, protected, password_hash, password_salt
+             recurring_days, recurring_time, protected, password_hash, password_salt,
+             password_iterations
       FROM items WHERE id = ?`, [editId]);
     if (row.length) {
-      titleInput.value = row[0].values[0][0] || '';
-      descInput.value  = row[0].values[0][1] || '';
-      linkInput.value  = row[0].values[0][2] || '';
+      const protection = getItemProtection(editId);
+      const decrypted = protection && protection.isEncrypted
+        ? decryptedProtectedItems.get(parseInt(editId, 10))
+        : null;
+      titleInput.value = decrypted ? decrypted.title || '' : row[0].values[0][0] || '';
+      descInput.value  = decrypted ? decrypted.description || '' : row[0].values[0][1] || '';
+      linkInput.value  = decrypted ? decrypted.link || '' : row[0].values[0][2] || '';
       document.getElementById('itemRecurring').value = row[0].values[0][3] || 0;
 
       // Recurring days
@@ -2187,6 +2365,7 @@ function openItemModal(sectionId, editId) {
       const hasItemPassword = !!(row[0].values[0][9] && row[0].values[0][10]);
       document.getElementById('itemProtected').checked = itemIsProtected;
       document.querySelector(`input[name="itemPasswordSource"][value="${hasItemPassword ? 'custom' : 'global'}"]`).checked = true;
+      document.getElementById('itemEncrypted').checked = !!(protection && protection.isEncrypted);
       onItemProtectionChange();
       onItemPasswordSourceChange();
 
@@ -2196,14 +2375,15 @@ function openItemModal(sectionId, editId) {
       document.getElementById('dueDateClearBtn').style.display = dueVal ? '' : 'none';
 
       // If item has sketch data, show the canvas with the sketch loaded
-      if (isRef && row[0].values[0][4]) {
+      const sketchValue = decrypted ? decrypted.sketchData : row[0].values[0][4];
+      if (isRef && sketchValue) {
         sketchActive = true;
         document.getElementById('sketchCanvasSection').style.display = '';
         document.getElementById('sketchToggleWrap').style.display = 'none';
         // Canvas init after modal is visible
         requestAnimationFrame(() => {
           initSketchCanvas();
-          const imgData = row[0].values[0][4];
+          const imgData = sketchValue;
           const img = new Image();
           img.onload = () => {
             const canvas = document.getElementById('sketchCanvas');
@@ -2230,6 +2410,7 @@ function openItemModal(sectionId, editId) {
     document.getElementById('itemDueDate').value = '';
     document.getElementById('dueDateClearBtn').style.display = 'none';
     document.getElementById('itemProtected').checked = false;
+    document.getElementById('itemEncrypted').checked = false;
     document.querySelector(`input[name="itemPasswordSource"][value="${hasGlobalPassword() ? 'global' : 'custom'}"]`).checked = true;
     onItemProtectionChange();
     onItemPasswordSourceChange();
@@ -2274,6 +2455,7 @@ function closeItemModal() {
   }
   document.getElementById('itemPassword').value = '';
   document.getElementById('itemPasswordConfirm').value = '';
+  document.getElementById('itemEncryptionPassword').value = '';
   clearTimeout(autoSaveTimer);
   closeModal('itemModal');
   renderSidebar();
@@ -2317,26 +2499,50 @@ async function saveItem() {
     }
   }
 
+  const encryption = await resolveItemEncryption(protection, {
+    title,
+    description: desc,
+    link,
+    sketchData: sketchDataURL,
+  });
+  if (!encryption) return;
+
+  const storedTitle = encryption.isEncrypted ? 'Encrypted item' : title;
+  const storedDescription = encryption.isEncrypted ? '' : desc;
+  const storedLink = encryption.isEncrypted ? '' : link;
+  const storedSketch = encryption.isEncrypted ? null : sketchDataURL;
+
   if (editId) {
     db.run(`UPDATE items
             SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?,
                 due_date = ?, recurring_days = ?, recurring_time = ?, protected = ?,
-                password_hash = ?, password_salt = ?
+                password_hash = ?, password_salt = ?, password_iterations = ?,
+                encrypted = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ?
             WHERE id = ?`,
-      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime,
-       protection.isProtected, protection.passwordHash, protection.passwordSalt, parseInt(editId)]);
+      [storedTitle, storedDescription, storedLink, recurring, storedSketch, dueDate, recurringDays, recurringTime,
+       protection.isProtected, protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
+       encryption.isEncrypted, encryption.encryptedData, encryption.encryptionIv,
+       encryption.encryptionVersion, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
     db.run(`INSERT INTO items
             (section_id, title, description, link, recurring, sort_order, sketch_data,
-             due_date, recurring_days, recurring_time, protected, password_hash, password_salt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL,
+             due_date, recurring_days, recurring_time, protected, password_hash, password_salt,
+             password_iterations, encrypted, encrypted_data, encryption_iv, encryption_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sectionId, storedTitle, storedDescription, storedLink, recurring,
+       maxOrder[0].values[0][0] + 1, storedSketch,
        dueDate, recurringDays, recurringTime, protection.isProtected,
-       protection.passwordHash, protection.passwordSalt]);
+       protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
+       encryption.isEncrypted, encryption.encryptedData, encryption.encryptionIv,
+       encryption.encryptionVersion]);
   }
 
-  if (editId && !protection.isProtected) unlockedProtectedItems.delete(parseInt(editId, 10));
+  if (editId) {
+    const itemId = parseInt(editId, 10);
+    decryptedProtectedItems.delete(itemId);
+    if (!protection.isProtected || encryption.isEncrypted) unlockedProtectedItems.delete(itemId);
+  }
 
   persist();
   closeItemModal();
@@ -2354,6 +2560,8 @@ async function saveItem() {
 function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
   expandedItems.delete(id);
+  unlockedProtectedItems.delete(id);
+  decryptedProtectedItems.delete(id);
   db.run('DELETE FROM followups WHERE item_id = ?', [id]);
   db.run('DELETE FROM items WHERE id = ?', [id]);
   persist();
@@ -2369,11 +2577,22 @@ function copyItem(event, id) {
     requestItemUnlock(id, 'copy');
     return;
   }
+  if (protection && protection.isEncrypted) {
+    const payload = decryptedProtectedItems.get(id);
+    if (!payload) { requestItemUnlock(id, 'copy'); return; }
+    copyItemText([payload.title, payload.description, payload.link].filter(Boolean).join('\n').trim());
+    return;
+  }
+
   const res = db.exec('SELECT title, description, link FROM items WHERE id = ?', [id]);
   if (!res.length) { toast('Nothing to copy'); return; }
 
   const [title, desc, link] = res[0].values[0];
   const text = [title, desc, link].filter(Boolean).join('\n').trim();
+  copyItemText(text);
+}
+
+function copyItemText(text) {
   if (!text) { toast('Nothing to copy'); return; }
 
   const done = () => toast('Copied to clipboard');
@@ -2488,6 +2707,7 @@ function importData(event) {
       activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
       activeView = 'board';
       unlockedProtectedItems.clear();
+      decryptedProtectedItems.clear();
 
       persist();
       renderSidebar();
@@ -2541,14 +2761,19 @@ async function setGlobalPassword() {
   const currentPassword = document.getElementById('currentGlobalPassword').value;
   const newPassword = document.getElementById('newGlobalPassword').value;
   const confirmation = document.getElementById('confirmGlobalPassword').value;
+  let currentMaterial = null;
 
   if (hasGlobalPassword()) {
-    const valid = await passwordMatches(
-      currentPassword,
-      getAppSetting('password_hash'),
-      getAppSetting('password_salt')
+    const currentIterations = parseInt(
+      getAppSetting('password_iterations') || PASSWORD_ITERATIONS,
+      10
     );
-    if (!valid) {
+    currentMaterial = await derivePasswordMaterial(
+      currentPassword,
+      getAppSetting('password_salt'),
+      currentIterations
+    );
+    if (!hashesMatch(currentMaterial.verifier, getAppSetting('password_hash'))) {
       toast('Current password is incorrect');
       return;
     }
@@ -2563,11 +2788,58 @@ async function setGlobalPassword() {
     return;
   }
 
-  const credential = await createPasswordCredential(newPassword);
-  setAppSetting('password_hash', credential.hash);
-  setAppSetting('password_salt', credential.salt);
+  const newSalt = bytesToBase64(crypto.getRandomValues(new Uint8Array(16)));
+  const newMaterial = await derivePasswordMaterial(newPassword, newSalt, PASSWORD_ITERATIONS);
+  const encryptedRowsResult = db.exec(`
+    SELECT id, encrypted_data, encryption_iv, encryption_version
+    FROM items
+    WHERE protected = 1 AND encrypted = 1
+      AND (password_hash IS NULL OR password_salt IS NULL)
+  `);
+  const encryptedRows = encryptedRowsResult.length ? encryptedRowsResult[0].values : [];
+  const reencryptedRows = [];
+
+  if (encryptedRows.length && !currentMaterial) {
+    toast('Current global password is required to update encrypted items');
+    return;
+  }
+
+  try {
+    for (const [itemId, encryptedData, encryptionIv, encryptionVersion] of encryptedRows) {
+      const payload = await decryptPayloadWithKey(
+        encryptedData,
+        encryptionIv,
+        currentMaterial.encryptionKey,
+        encryptionVersion
+      );
+      const encrypted = await encryptPayloadWithKey(payload, newMaterial.encryptionKey);
+      reencryptedRows.push({ itemId, ...encrypted });
+    }
+  } catch (error) {
+    toast('Could not re-encrypt items; password was not changed');
+    return;
+  }
+
+  db.run('BEGIN');
+  try {
+    for (const row of reencryptedRows) {
+      db.run(`UPDATE items
+              SET encrypted_data = ?, encryption_iv = ?, encryption_version = ?
+              WHERE id = ?`,
+        [row.encryptedData, row.encryptionIv, row.encryptionVersion, row.itemId]);
+    }
+    setAppSetting('password_hash', newMaterial.verifier);
+    setAppSetting('password_salt', newSalt);
+    setAppSetting('password_iterations', String(PASSWORD_ITERATIONS));
+    db.run('COMMIT');
+  } catch (error) {
+    db.run('ROLLBACK');
+    toast('Password update failed');
+    return;
+  }
   persist();
   unlockedProtectedItems.clear();
+  decryptedProtectedItems.clear();
   openSettingsModal();
   toast('Global password updated');
 }
@@ -2578,7 +2850,8 @@ async function removeGlobalPassword() {
   const valid = await passwordMatches(
     currentPassword,
     getAppSetting('password_hash'),
-    getAppSetting('password_salt')
+    getAppSetting('password_salt'),
+    parseInt(getAppSetting('password_iterations') || PASSWORD_ITERATIONS, 10)
   );
   if (!valid) {
     toast('Enter the current password before removing it');
@@ -2596,8 +2869,10 @@ async function removeGlobalPassword() {
 
   deleteAppSetting('password_hash');
   deleteAppSetting('password_salt');
+  deleteAppSetting('password_iterations');
   persist();
   unlockedProtectedItems.clear();
+  decryptedProtectedItems.clear();
   openSettingsModal();
   toast('Global password removed');
 }

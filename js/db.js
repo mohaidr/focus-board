@@ -149,6 +149,31 @@ function createTables() {
   } catch (e) {
     db.run('ALTER TABLE items ADD COLUMN password_salt TEXT DEFAULT NULL');
   }
+  try {
+    db.exec('SELECT password_iterations FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN password_iterations INTEGER DEFAULT 210000');
+  }
+  try {
+    db.exec('SELECT encrypted FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN encrypted INTEGER DEFAULT 0');
+  }
+  try {
+    db.exec('SELECT encrypted_data FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN encrypted_data TEXT DEFAULT NULL');
+  }
+  try {
+    db.exec('SELECT encryption_iv FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN encryption_iv TEXT DEFAULT NULL');
+  }
+  try {
+    db.exec('SELECT encryption_version FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN encryption_version INTEGER DEFAULT NULL');
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS app_settings (

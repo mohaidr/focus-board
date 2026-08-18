@@ -60,9 +60,11 @@ It is not a medical product, but it is intentionally designed to support focus, 
 - Hide a reference item's title, notes, link, and sketch behind a password prompt
 - Use one global password or an item-specific password that overrides it
 - Passwords are verified with PBKDF2-SHA-256 using random salts and are never stored as plaintext
+- Optionally encrypt protected item content with AES-256-GCM
+- Encrypted titles, notes, links, and sketches remain ciphertext in IndexedDB, exports, and backups
 - Unlock state lasts only for the current page session; reload or use **Lock all** to relock items
 
-Phase one provides an application-level privacy lock, not encrypted storage. Protected item content remains plaintext in IndexedDB, JSON exports, and backup files. Do not treat it as secure secret storage until content encryption is added in phase two.
+Encryption is optional per protected item. Protected items without encryption remain plaintext in IndexedDB, JSON exports, and backup files. Encryption keys are derived for the immediate operation and are never persisted or cached. While an encrypted item is unlocked, its decrypted content necessarily exists transiently in page memory and the rendered interface until the item is locked or the page is reloaded.
 
 ### Reminders and Attention Signals
 
