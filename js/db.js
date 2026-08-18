@@ -133,6 +133,30 @@ function createTables() {
     db.run("ALTER TABLE items ADD COLUMN recurring_time TEXT DEFAULT NULL");
   }
 
+  // Reference-item password protection. Content encryption is handled separately.
+  try {
+    db.exec('SELECT protected FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN protected INTEGER DEFAULT 0');
+  }
+  try {
+    db.exec('SELECT password_hash FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN password_hash TEXT DEFAULT NULL');
+  }
+  try {
+    db.exec('SELECT password_salt FROM items LIMIT 1');
+  } catch (e) {
+    db.run('ALTER TABLE items ADD COLUMN password_salt TEXT DEFAULT NULL');
+  }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
   // Follow-ups attached to task items
   db.run(`
     CREATE TABLE IF NOT EXISTS followups (

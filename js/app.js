@@ -36,6 +36,8 @@ let backupFilesCache = [];
 let reminderAudioCtx = null;
 let pendingReminderTone = false;
 let pendingReminderToneUrgent = false;
+const unlockedProtectedItems = new Set();
+const PASSWORD_ITERATIONS = 210000;
 
 
 /* ================================================================
@@ -64,6 +66,156 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function getAppSetting(key) {
+  const result = db.exec('SELECT value FROM app_settings WHERE key = ?', [key]);
+  return result.length && result[0].values.length ? result[0].values[0][0] : null;
+}
+
+function setAppSetting(key, value) {
+  db.run('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', [key, value]);
+}
+
+function deleteAppSetting(key) {
+  db.run('DELETE FROM app_settings WHERE key = ?', [key]);
+}
+
+function hasGlobalPassword() {
+  return !!(getAppSetting('password_hash') && getAppSetting('password_salt'));
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function derivePasswordHash(password, saltBase64) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt: base64ToBytes(saltBase64),
+    iterations: PASSWORD_ITERATIONS,
+    hash: 'SHA-256',
+  }, keyMaterial, 256);
+  return bytesToBase64(new Uint8Array(bits));
+}
+
+async function createPasswordCredential(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const saltBase64 = bytesToBase64(salt);
+  return {
+    hash: await derivePasswordHash(password, saltBase64),
+    salt: saltBase64,
+  };
+}
+
+async function passwordMatches(password, expectedHash, salt) {
+  if (!password || !expectedHash || !salt) return false;
+  const actualHash = await derivePasswordHash(password, salt);
+  if (actualHash.length !== expectedHash.length) return false;
+  let difference = 0;
+  for (let index = 0; index < actualHash.length; index++) {
+    difference |= actualHash.charCodeAt(index) ^ expectedHash.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+function getItemProtection(itemId) {
+  const result = db.exec(
+    'SELECT section_id, protected, password_hash, password_salt FROM items WHERE id = ?',
+    [itemId]
+  );
+  if (!result.length || !result[0].values.length) return null;
+  const [sectionId, isProtected, passwordHash, passwordSalt] = result[0].values[0];
+  return { sectionId, isProtected: isProtected === 1, passwordHash, passwordSalt };
+}
+
+function isItemLocked(itemId, isProtected) {
+  return isProtected === 1 && !unlockedProtectedItems.has(itemId);
+}
+
+function requestItemUnlock(itemId, action = 'expand') {
+  const protection = getItemProtection(itemId);
+  if (!protection || !protection.isProtected) {
+    runUnlockedItemAction(itemId, action, protection ? protection.sectionId : null);
+    return;
+  }
+
+  document.getElementById('unlockItemId').value = itemId;
+  document.getElementById('unlockAction').value = action;
+  document.getElementById('unlockPassword').value = '';
+  document.getElementById('unlockError').textContent = '';
+  document.getElementById('unlockModal').classList.add('active');
+  requestAnimationFrame(() => document.getElementById('unlockPassword').focus());
+}
+
+async function submitItemUnlock() {
+  const itemId = parseInt(document.getElementById('unlockItemId').value, 10);
+  const action = document.getElementById('unlockAction').value || 'expand';
+  const passwordInput = document.getElementById('unlockPassword');
+  const protection = getItemProtection(itemId);
+  if (!protection) {
+    closeUnlockModal();
+    return;
+  }
+
+  const hash = protection.passwordHash || getAppSetting('password_hash');
+  const salt = protection.passwordSalt || getAppSetting('password_salt');
+  const valid = await passwordMatches(passwordInput.value, hash, salt);
+  passwordInput.value = '';
+  if (!valid) {
+    document.getElementById('unlockError').textContent = 'Incorrect password';
+    passwordInput.focus();
+    return;
+  }
+
+  unlockedProtectedItems.add(itemId);
+  closeUnlockModal();
+  runUnlockedItemAction(itemId, action, protection.sectionId);
+}
+
+function runUnlockedItemAction(itemId, action, sectionId) {
+  if (action === 'edit') {
+    openItemModal(sectionId, itemId);
+  } else if (action === 'copy') {
+    copyItem(null, itemId);
+  } else {
+    expandedItems.add(itemId);
+    renderMain();
+  }
+}
+
+function closeUnlockModal() {
+  document.getElementById('unlockPassword').value = '';
+  document.getElementById('unlockError').textContent = '';
+  closeModal('unlockModal');
+}
+
+function lockItem(event, itemId) {
+  if (event) event.stopPropagation();
+  unlockedProtectedItems.delete(itemId);
+  expandedItems.delete(itemId);
+  renderMain();
+}
+
+function lockAllProtectedItems() {
+  unlockedProtectedItems.clear();
+  expandedItems.clear();
+  renderMain();
+  toast('Protected items locked');
 }
 
 function onRecurringChange() {
@@ -517,6 +669,7 @@ function snapshotCurrentData() {
     sections: db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC'),
     items: db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id'),
     followups: db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id'),
+    appSettings: db.exec('SELECT * FROM app_settings ORDER BY key'),
   };
 }
 
@@ -605,6 +758,7 @@ function applySnapshot(snapshot) {
   db.run('DELETE FROM items');
   db.run('DELETE FROM sections');
   db.run('DELETE FROM followups');
+  db.run('DELETE FROM app_settings');
 
   if (snapshot.sections.length && snapshot.sections[0].values) {
     const cols = snapshot.sections[0].columns
@@ -641,6 +795,14 @@ function applySnapshot(snapshot) {
       db.run(`INSERT INTO followups (${cols}) VALUES (${ph})`, row);
     }
   }
+
+  if (snapshot.appSettings && snapshot.appSettings.length && snapshot.appSettings[0].values) {
+    for (const row of snapshot.appSettings[0].values) {
+      db.run('INSERT INTO app_settings (key, value) VALUES (?, ?)', row);
+    }
+  }
+
+  unlockedProtectedItems.clear();
 }
 
 function formatBackupDate(iso) {
@@ -1009,6 +1171,7 @@ function renderMain() {
       <span class="item-total">${total} item${total !== 1 ? 's' : ''}</span>
     </div>
     <div style="display:flex;gap:8px;">
+      ${boardType === 'reference' && unlockedProtectedItems.size ? '<button class="btn btn-ghost btn-sm" onclick="lockAllProtectedItems()">&#128274; Lock all</button>' : ''}
       <button class="btn btn-ghost btn-sm" onclick="openSectionModal(${sid})">&#9998; Edit Board</button>
       <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteSection(${sid})">&#10005; Delete Board</button>
     </div>`;
@@ -1017,20 +1180,20 @@ function renderMain() {
   const searchVal = escAttr(sectionSearchTerm);
 
   // Load items from DB (with search filter if active)
-  let itemsRes;
-  if (searchTerm) {
-    itemsRes = db.exec(
-      `SELECT id, title, description, link, completed, recurring, status, due_date
-       FROM items
-       WHERE section_id = ?
-         AND (LOWER(title) LIKE '%' || ? || '%' OR LOWER(description) LIKE '%' || ? || '%')
-       ORDER BY sort_order, id`,
-      [sid, searchTerm, searchTerm]
-    );
-  } else {
-    itemsRes = db.exec('SELECT id, title, description, link, completed, recurring, status, due_date FROM items WHERE section_id = ? ORDER BY sort_order, id', [sid]);
-  }
+  const itemsRes = db.exec(
+    `SELECT id, title, description, link, completed, recurring, status, due_date,
+            protected, password_hash, password_salt
+     FROM items WHERE section_id = ? ORDER BY sort_order, id`,
+    [sid]
+  );
   let rows = itemsRes.length ? itemsRes[0].values : [];
+  if (searchTerm) {
+    rows = rows.filter(row => {
+      if (boardType === 'reference' && isItemLocked(row[0], row[8])) return false;
+      return (row[1] || '').toLowerCase().includes(searchTerm)
+        || (row[2] || '').toLowerCase().includes(searchTerm);
+    });
+  }
 
   if (rows.length === 0 && !searchTerm) {
     body.innerHTML = `
@@ -1052,11 +1215,11 @@ function renderMain() {
   if (boardType === 'reference') {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
-    for (const [iid, title, desc, link, completed, recurring, status, dueDate] of rows) {
+    for (const [iid, title, desc, link, completed, recurring, status, dueDate, isProtected] of rows) {
       // Check if item has sketch data
       const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
       const sketchData = (sketchRes.length && sketchRes[0].values[0][0]) ? sketchRes[0].values[0][0] : null;
-      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid, sketchData);
+      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected);
     }
     html += '</div>';
     if (!searchTerm) {
@@ -1145,7 +1308,18 @@ function renderMain() {
 
 /* ── Reference Item HTML ── */
 
-function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
+function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected) {
+  if (isItemLocked(iid, isProtected)) {
+    return `
+      <div class="item ref-item protected-item locked-item" data-item-id="${iid}">
+        <div class="item-row" onclick="requestItemUnlock(${iid}, 'expand')">
+          <span class="ref-item-icon">&#128274;</span>
+          <span class="item-title-text protected-item-title">Protected item</span>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();requestItemUnlock(${iid}, 'expand')">Unlock</button>
+        </div>
+      </div>`;
+  }
+
   const expandedCls = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
@@ -1169,6 +1343,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
         <div class="item-detail-actions" style="margin-top:10px;">
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
           <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
+          ${isProtected ? `<button class="btn btn-ghost btn-sm" onclick="lockItem(event, ${iid})">&#128274; Lock</button>` : ''}
           <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
         </div>
       </div>`;
@@ -1185,7 +1360,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData) {
         <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
         <span class="ref-item-icon">${icon}</span>
         <span class="item-title-text">${esc(title)}</span>
-        <div class="item-indicators">${hasSketch}${hasDesc}${hasLink}</div>
+        <div class="item-indicators">${isProtected ? '<span title="Password protected">&#128275;</span>' : ''}${hasSketch}${hasDesc}${hasLink}</div>
         <div class="item-quick-actions">
           <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
           <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
@@ -1435,6 +1610,11 @@ function cancelFollowupEdit(event) {
 
 
 function toggleExpand(iid) {
+  const protection = getItemProtection(iid);
+  if (protection && protection.isProtected && isItemLocked(iid, 1)) {
+    requestItemUnlock(iid, 'expand');
+    return;
+  }
   expandedItems.has(iid) ? expandedItems.delete(iid) : expandedItems.add(iid);
   renderMain();
 }
@@ -1657,15 +1837,19 @@ function renderSearchResults(term) {
 
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
-           i.recurring, i.section_id, s.name, s.color, i.status, i.due_date
+           i.recurring, i.section_id, s.name, s.color, i.status, i.due_date,
+           s.type, i.protected
     FROM items i
     JOIN sections s ON i.section_id = s.id
-    WHERE LOWER(i.title) LIKE '%' || ? || '%'
-       OR LOWER(i.description) LIKE '%' || ? || '%'
     ORDER BY s.sort_order, i.sort_order
-  `, [term, term]);
+  `);
 
-  const rows = res.length ? res[0].values : [];
+  const allRows = res.length ? res[0].values : [];
+  const rows = allRows.filter(row => {
+    if (row[11] === 'reference' && isItemLocked(row[0], row[12])) return false;
+    return (row[1] || '').toLowerCase().includes(term)
+      || (row[2] || '').toLowerCase().includes(term);
+  });
 
   header.innerHTML = `
     <div class="main-header-left">
@@ -1682,7 +1866,7 @@ function renderSearchResults(term) {
   let html = '';
   let currentSection = null;
 
-  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status, dueDate] of rows) {
+  for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor, status, dueDate, sectionType, isProtected] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -1692,7 +1876,13 @@ function renderSearchResults(term) {
           <span style="font-size:13px;font-weight:600;color:var(--text-muted)">${esc(secName)}</span>
         </div>`;
     }
-    html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate);
+    if (sectionType === 'reference') {
+      const sketchRes = db.exec('SELECT sketch_data FROM items WHERE id = ?', [iid]);
+      const sketchData = sketchRes.length && sketchRes[0].values[0][0] ? sketchRes[0].values[0][0] : null;
+      html += renderRefItem(iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected);
+    } else {
+      html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate);
+    }
   }
 
   body.innerHTML = html;
@@ -1879,7 +2069,69 @@ function deleteSection(id) {
    Item CRUD
    ================================================================ */
 
+function onItemProtectionChange() {
+  const enabled = document.getElementById('itemProtected').checked;
+  document.getElementById('itemPasswordOptions').style.display = enabled ? '' : 'none';
+}
+
+function onItemPasswordSourceChange() {
+  const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
+  document.getElementById('itemCustomPasswordGroup').style.display = source === 'custom' ? '' : 'none';
+}
+
+async function resolveItemProtection(editId, isReference) {
+  if (!isReference || !document.getElementById('itemProtected').checked) {
+    return { isProtected: 0, passwordHash: null, passwordSalt: null };
+  }
+
+  const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
+  if (source === 'global') {
+    if (!hasGlobalPassword()) {
+      toast('Set a global password or choose an item password');
+      return null;
+    }
+    return { isProtected: 1, passwordHash: null, passwordSalt: null };
+  }
+
+  const password = document.getElementById('itemPassword').value;
+  const confirmation = document.getElementById('itemPasswordConfirm').value;
+  if (password || confirmation) {
+    if (password.length < 8) {
+      toast('Item password must be at least 8 characters');
+      return null;
+    }
+    if (password !== confirmation) {
+      toast('Item passwords do not match');
+      return null;
+    }
+    const credential = await createPasswordCredential(password);
+    return { isProtected: 1, passwordHash: credential.hash, passwordSalt: credential.salt };
+  }
+
+  if (editId) {
+    const existing = getItemProtection(parseInt(editId, 10));
+    if (existing && existing.passwordHash && existing.passwordSalt) {
+      return {
+        isProtected: 1,
+        passwordHash: existing.passwordHash,
+        passwordSalt: existing.passwordSalt,
+      };
+    }
+  }
+
+  toast('Enter and confirm an item password');
+  return null;
+}
+
 function openItemModal(sectionId, editId) {
+  if (editId) {
+    const protection = getItemProtection(editId);
+    if (protection && protection.isProtected && isItemLocked(editId, 1)) {
+      requestItemUnlock(editId, 'edit');
+      return;
+    }
+  }
+
   const modal      = document.getElementById('itemModal');
   const titleEl    = document.getElementById('itemModalTitle');
   const titleInput = document.getElementById('itemTitle');
@@ -1895,6 +2147,9 @@ function openItemModal(sectionId, editId) {
   document.getElementById('recurringGroup').style.display = isRef ? 'none' : '';
   document.getElementById('dueDateGroup').style.display = isRef ? 'none' : '';
   document.getElementById('sketchGroup').style.display = isRef ? '' : 'none';
+  document.getElementById('secretProtectionGroup').style.display = isRef ? '' : 'none';
+  document.getElementById('itemPassword').value = '';
+  document.getElementById('itemPasswordConfirm').value = '';
 
   // Reset sketch state
   sketchActive = false;
@@ -1907,7 +2162,10 @@ function openItemModal(sectionId, editId) {
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
-    const row = db.exec('SELECT title, description, link, recurring, sketch_data, due_date, recurring_days, recurring_time FROM items WHERE id = ?', [editId]);
+    const row = db.exec(`
+      SELECT title, description, link, recurring, sketch_data, due_date,
+             recurring_days, recurring_time, protected, password_hash, password_salt
+      FROM items WHERE id = ?`, [editId]);
     if (row.length) {
       titleInput.value = row[0].values[0][0] || '';
       descInput.value  = row[0].values[0][1] || '';
@@ -1924,6 +2182,13 @@ function openItemModal(sectionId, editId) {
       document.getElementById('recurringTimeWrap').style.display = recurVal != 0 ? '' : 'none';
       document.getElementById('itemRecurringTime').value = recurTimeVal;
       document.getElementById('recurringTimeClearBtn').style.display = recurTimeVal ? '' : 'none';
+
+      const itemIsProtected = row[0].values[0][8] === 1;
+      const hasItemPassword = !!(row[0].values[0][9] && row[0].values[0][10]);
+      document.getElementById('itemProtected').checked = itemIsProtected;
+      document.querySelector(`input[name="itemPasswordSource"][value="${hasItemPassword ? 'custom' : 'global'}"]`).checked = true;
+      onItemProtectionChange();
+      onItemPasswordSourceChange();
 
       // Due date
       const dueVal = row[0].values[0][5] || '';
@@ -1964,6 +2229,10 @@ function openItemModal(sectionId, editId) {
     document.getElementById('recurringTimeClearBtn').style.display = 'none';
     document.getElementById('itemDueDate').value = '';
     document.getElementById('dueDateClearBtn').style.display = 'none';
+    document.getElementById('itemProtected').checked = false;
+    document.querySelector(`input[name="itemPasswordSource"][value="${hasGlobalPassword() ? 'global' : 'custom'}"]`).checked = true;
+    onItemProtectionChange();
+    onItemPasswordSourceChange();
   }
 
   modal.classList.add('active');
@@ -2003,13 +2272,15 @@ function closeItemModal() {
     sketchCtx = null;
     sketchActive = false;
   }
+  document.getElementById('itemPassword').value = '';
+  document.getElementById('itemPasswordConfirm').value = '';
   clearTimeout(autoSaveTimer);
   closeModal('itemModal');
   renderSidebar();
   renderMain();
 }
 
-function saveItem() {
+async function saveItem() {
   const title     = document.getElementById('itemTitle').value.trim();
   const desc      = document.getElementById('itemDesc').value.trim();
   const link      = document.getElementById('itemLink').value.trim();
@@ -2017,6 +2288,8 @@ function saveItem() {
   const editId    = document.getElementById('editItemId').value;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
   const createdItem = !editId;
+  const sectionType = db.exec('SELECT type FROM sections WHERE id = ?', [sectionId]);
+  const isReference = sectionType.length && sectionType[0].values[0][0] === 'reference';
 
   if (!title) { toast('Title is required'); return; }
   if (link && !link.match(/^https?:\/\/.+/i)) {
@@ -2027,6 +2300,8 @@ function saveItem() {
   const dueDate = document.getElementById('itemDueDate').value || null;
   const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
   const recurringTime = recurring ? (document.getElementById('itemRecurringTime').value || null) : null;
+  const protection = await resolveItemProtection(editId, isReference);
+  if (!protection) return;
 
   // Get sketch data if canvas is active
   let sketchDataURL = null;
@@ -2043,13 +2318,25 @@ function saveItem() {
   }
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
-      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
+    db.run(`UPDATE items
+            SET title = ?, description = ?, link = ?, recurring = ?, sketch_data = ?,
+                due_date = ?, recurring_days = ?, recurring_time = ?, protected = ?,
+                password_hash = ?, password_salt = ?
+            WHERE id = ?`,
+      [title, desc, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime,
+       protection.isProtected, protection.passwordHash, protection.passwordSalt, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
+    db.run(`INSERT INTO items
+            (section_id, title, description, link, recurring, sort_order, sketch_data,
+             due_date, recurring_days, recurring_time, protected, password_hash, password_salt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sectionId, title, desc, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL,
+       dueDate, recurringDays, recurringTime, protection.isProtected,
+       protection.passwordHash, protection.passwordSalt]);
   }
+
+  if (editId && !protection.isProtected) unlockedProtectedItems.delete(parseInt(editId, 10));
 
   persist();
   closeItemModal();
@@ -2076,7 +2363,12 @@ function deleteItem(id) {
 }
 
 function copyItem(event, id) {
-  event.stopPropagation();
+  if (event) event.stopPropagation();
+  const protection = getItemProtection(id);
+  if (protection && protection.isProtected && isItemLocked(id, 1)) {
+    requestItemUnlock(id, 'copy');
+    return;
+  }
   const res = db.exec('SELECT title, description, link FROM items WHERE id = ?', [id]);
   if (!res.length) { toast('Nothing to copy'); return; }
 
@@ -2122,9 +2414,10 @@ function exportData() {
   const sections = db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   const items    = db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id');
   const followups = db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id');
+  const appSettings = db.exec('SELECT * FROM app_settings ORDER BY key');
 
   const blob = new Blob(
-    [JSON.stringify({ sections, items, followups, exported: new Date().toISOString() }, null, 2)],
+    [JSON.stringify({ sections, items, followups, appSettings, exported: new Date().toISOString() }, null, 2)],
     { type: 'application/json' }
   );
 
@@ -2152,6 +2445,7 @@ function importData(event) {
       db.run('DELETE FROM items');
       db.run('DELETE FROM sections');
       db.run('DELETE FROM followups');
+      db.run('DELETE FROM app_settings');
 
       if (data.sections.length && data.sections[0].values) {
         const cols = data.sections[0].columns
@@ -2185,9 +2479,15 @@ function importData(event) {
           db.run(`INSERT INTO followups (${cols}) VALUES (${ph})`, row);
       }
 
+      if (data.appSettings && data.appSettings.length && data.appSettings[0].values) {
+        for (const row of data.appSettings[0].values)
+          db.run('INSERT INTO app_settings (key, value) VALUES (?, ?)', row);
+      }
+
       const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
       activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
       activeView = 'board';
+      unlockedProtectedItems.clear();
 
       persist();
       renderSidebar();
@@ -2217,6 +2517,17 @@ function openSettingsModal() {
   document.getElementById('autoDeleteDelayGroup').style.display = enabled ? '' : 'none';
   document.getElementById('notificationsEnabled').checked = notifEnabled;
   document.getElementById('autoSaveEnabled').checked = autoSave;
+  document.getElementById('currentGlobalPassword').value = '';
+  document.getElementById('newGlobalPassword').value = '';
+  document.getElementById('confirmGlobalPassword').value = '';
+
+  const passwordConfigured = hasGlobalPassword();
+  document.getElementById('globalPasswordStatus').textContent = passwordConfigured
+    ? 'Global password is configured'
+    : 'No global password configured';
+  document.getElementById('currentGlobalPasswordGroup').style.display = passwordConfigured ? '' : 'none';
+  document.getElementById('removeGlobalPasswordBtn').style.display = passwordConfigured ? '' : 'none';
+  document.getElementById('newGlobalPasswordLabel').textContent = passwordConfigured ? 'New Password' : 'Password';
 
   // Toggle visibility when checkbox changes
   document.getElementById('autoDeleteEnabled').onchange = function () {
@@ -2224,6 +2535,71 @@ function openSettingsModal() {
   };
 
   document.getElementById('settingsModal').classList.add('active');
+}
+
+async function setGlobalPassword() {
+  const currentPassword = document.getElementById('currentGlobalPassword').value;
+  const newPassword = document.getElementById('newGlobalPassword').value;
+  const confirmation = document.getElementById('confirmGlobalPassword').value;
+
+  if (hasGlobalPassword()) {
+    const valid = await passwordMatches(
+      currentPassword,
+      getAppSetting('password_hash'),
+      getAppSetting('password_salt')
+    );
+    if (!valid) {
+      toast('Current password is incorrect');
+      return;
+    }
+  }
+
+  if (newPassword.length < 8) {
+    toast('Password must be at least 8 characters');
+    return;
+  }
+  if (newPassword !== confirmation) {
+    toast('New passwords do not match');
+    return;
+  }
+
+  const credential = await createPasswordCredential(newPassword);
+  setAppSetting('password_hash', credential.hash);
+  setAppSetting('password_salt', credential.salt);
+  persist();
+  unlockedProtectedItems.clear();
+  openSettingsModal();
+  toast('Global password updated');
+}
+
+async function removeGlobalPassword() {
+  if (!hasGlobalPassword()) return;
+  const currentPassword = document.getElementById('currentGlobalPassword').value;
+  const valid = await passwordMatches(
+    currentPassword,
+    getAppSetting('password_hash'),
+    getAppSetting('password_salt')
+  );
+  if (!valid) {
+    toast('Enter the current password before removing it');
+    return;
+  }
+
+  const dependentItems = db.exec(`
+    SELECT COUNT(*) FROM items
+    WHERE protected = 1 AND (password_hash IS NULL OR password_salt IS NULL)
+  `)[0].values[0][0];
+  if (dependentItems > 0) {
+    toast(`${dependentItems} protected item${dependentItems === 1 ? '' : 's'} still use the global password`);
+    return;
+  }
+
+  deleteAppSetting('password_hash');
+  deleteAppSetting('password_salt');
+  persist();
+  unlockedProtectedItems.clear();
+  openSettingsModal();
+  toast('Global password removed');
 }
 
 function saveSettings() {
@@ -2315,6 +2691,7 @@ function silentSaveItem() {
   const recurringDays = recurring === 5 ? getSelectedRecurringDays() : null;
   const recurringTime = recurring ? (document.getElementById('itemRecurringTime').value || null) : null;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
+  if (document.getElementById('itemProtected').checked) return false;
 
   // Get sketch data if canvas is active
   let sketchDataURL = null;

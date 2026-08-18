@@ -55,6 +55,15 @@ It is not a medical product, but it is intentionally designed to support focus, 
 - Pen and eraser tools
 - Undo and clear canvas
 
+### Protected Reference Items
+
+- Hide a reference item's title, notes, link, and sketch behind a password prompt
+- Use one global password or an item-specific password that overrides it
+- Passwords are verified with PBKDF2-SHA-256 using random salts and are never stored as plaintext
+- Unlock state lasts only for the current page session; reload or use **Lock all** to relock items
+
+Phase one provides an application-level privacy lock, not encrypted storage. Protected item content remains plaintext in IndexedDB, JSON exports, and backup files. Do not treat it as secure secret storage until content encryption is added in phase two.
+
 ### Reminders and Attention Signals
 
 - In-app due and overdue banners
@@ -123,6 +132,7 @@ Dashora/
 
 - Stored as SQLite in browser memory via sql.js
 - Persisted to IndexedDB
+- Password hashes and salts are stored with app data so protected items remain usable after restore
 
 ### Backup Metadata
 

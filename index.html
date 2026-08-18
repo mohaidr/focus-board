@@ -117,6 +117,25 @@
       <label>Link (optional)</label>
       <input type="text" id="itemLink" placeholder="https://...">
     </div>
+    <div class="secret-protection" id="secretProtectionGroup" style="display:none;">
+      <label class="toggle-label">
+        <input type="checkbox" id="itemProtected" onchange="onItemProtectionChange()">
+        <span class="toggle-slider"></span>
+        <span>Require a password to open this item</span>
+      </label>
+      <div id="itemPasswordOptions" style="display:none;">
+        <div class="password-source-options">
+          <label><input type="radio" name="itemPasswordSource" value="global" checked onchange="onItemPasswordSourceChange()"> Global password</label>
+          <label><input type="radio" name="itemPasswordSource" value="custom" onchange="onItemPasswordSourceChange()"> Item password</label>
+        </div>
+        <div class="form-group" id="itemCustomPasswordGroup" style="display:none;">
+          <label>Item Password</label>
+          <input type="password" id="itemPassword" autocomplete="new-password" placeholder="Leave blank to keep the current item password">
+          <input type="password" id="itemPasswordConfirm" autocomplete="new-password" placeholder="Confirm item password">
+        </div>
+        <div class="form-hint secret-warning">Phase one hides content in the app. It is not encrypted in local data, exports, or backups yet.</div>
+      </div>
+    </div>
     <div class="form-group" id="recurringGroup">
       <label>Recurring</label>
       <select id="itemRecurring" class="form-select" onchange="onRecurringChange()">
@@ -218,9 +237,52 @@
         <option value="30">30 days</option>
       </select>
     </div>
+    <div class="settings-divider"></div>
+    <div class="password-settings">
+      <div class="password-settings-header">
+        <div>
+          <h3>Reference item password</h3>
+          <div class="form-hint no-indent" id="globalPasswordStatus">No global password configured</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="removeGlobalPasswordBtn" type="button" onclick="removeGlobalPassword()" style="display:none;">Remove</button>
+      </div>
+      <div class="form-group" id="currentGlobalPasswordGroup" style="display:none;">
+        <label>Current Password</label>
+        <input type="password" id="currentGlobalPassword" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label id="newGlobalPasswordLabel">New Password</label>
+        <input type="password" id="newGlobalPassword" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <input type="password" id="confirmGlobalPassword" autocomplete="new-password">
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="setGlobalPassword()">Set password</button>
+      <div class="form-hint no-indent secret-warning">Only a salted password hash is saved. Phase one does not encrypt protected item content.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Password Unlock Modal -->
+<div class="modal-overlay" id="unlockModal">
+  <div class="modal modal-compact">
+    <h2>Unlock protected item</h2>
+    <input type="hidden" id="unlockItemId">
+    <input type="hidden" id="unlockAction">
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="unlockPassword" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')submitItemUnlock()">
+      <div class="form-error" id="unlockError"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeUnlockModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitItemUnlock()">Unlock</button>
     </div>
   </div>
 </div>
