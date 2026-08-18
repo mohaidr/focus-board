@@ -1,4 +1,4 @@
-const CACHE_VERSION = 18;
+const CACHE_VERSION = 19;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',

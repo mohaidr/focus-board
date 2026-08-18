@@ -40,6 +40,8 @@ const unlockedProtectedItems = new Set();
 const decryptedProtectedItems = new Map();
 const PASSWORD_ITERATIONS = 210000;
 const ENCRYPTION_VERSION = 1;
+let encryptionPasswordPromptResolve = null;
+let itemSaveInProgress = false;
 
 
 /* ================================================================
@@ -2197,15 +2199,64 @@ function onItemProtectionChange() {
 function onItemPasswordSourceChange() {
   const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
   document.getElementById('itemCustomPasswordGroup').style.display = source === 'custom' ? '' : 'none';
+  onItemEncryptionChange();
 }
 
 function onItemEncryptionChange() {
   const encrypted = document.getElementById('itemProtected').checked
     && document.getElementById('itemEncrypted').checked;
-  document.getElementById('itemEncryptionPasswordGroup').style.display = encrypted ? '' : 'none';
-  document.getElementById('itemProtectionHint').textContent = encrypted
-    ? 'Title, description, link, and sketch will be encrypted in app data, exports, and backups.'
-    : 'Without encryption, protection only hides content inside the app.';
+  if (!encrypted) {
+    document.getElementById('itemProtectionHint').textContent = 'Without encryption, protection only hides content inside the app.';
+    return;
+  }
+
+  const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
+  const hasNewItemPassword = source === 'custom' && !!document.getElementById('itemPassword').value;
+  document.getElementById('itemProtectionHint').textContent = hasNewItemPassword
+    ? 'Content will be encrypted with the new item password when saved.'
+    : `Save will ask for the ${source === 'global' ? 'global' : 'item'} password. The derived key is not stored or cached.`;
+}
+
+function requestEncryptionPassword(source, errorText = '') {
+  const isGlobal = source === 'global';
+  document.getElementById('encryptionPasswordModalTitle').textContent = isGlobal
+    ? 'Confirm global password'
+    : 'Confirm item password';
+  document.getElementById('encryptionPasswordLabel').textContent = isGlobal
+    ? 'Global Password'
+    : 'Item Password';
+  document.getElementById('encryptionPasswordHint').textContent = 'Used only for this encryption operation. It will not be stored or cached.';
+  document.getElementById('encryptionPasswordError').textContent = errorText;
+  document.getElementById('encryptionPasswordPrompt').value = '';
+  document.getElementById('encryptionPasswordModal').classList.add('active');
+  requestAnimationFrame(() => document.getElementById('encryptionPasswordPrompt').focus());
+
+  return new Promise(resolve => {
+    encryptionPasswordPromptResolve = resolve;
+  });
+}
+
+function finishEncryptionPasswordPrompt(password) {
+  const resolve = encryptionPasswordPromptResolve;
+  encryptionPasswordPromptResolve = null;
+  document.getElementById('encryptionPasswordPrompt').value = '';
+  document.getElementById('encryptionPasswordError').textContent = '';
+  closeModal('encryptionPasswordModal');
+  if (resolve) resolve(password);
+}
+
+function submitEncryptionPasswordPrompt() {
+  const input = document.getElementById('encryptionPasswordPrompt');
+  if (!input.value) {
+    document.getElementById('encryptionPasswordError').textContent = 'Password is required';
+    input.focus();
+    return;
+  }
+  finishEncryptionPasswordPrompt(input.value);
+}
+
+function cancelEncryptionPasswordPrompt() {
+  finishEncryptionPasswordPrompt(null);
 }
 
 async function resolveItemProtection(editId, isReference) {
@@ -2270,23 +2321,28 @@ async function resolveItemEncryption(protection, payload) {
 
   const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
   const newItemPassword = document.getElementById('itemPassword').value;
-  const password = source === 'custom' && newItemPassword
-    ? newItemPassword
-    : document.getElementById('itemEncryptionPassword').value;
-  if (!password) {
-    toast('Enter the password for this encrypted save');
-    return null;
-  }
-
   const expectedHash = protection.passwordHash || getAppSetting('password_hash');
   const salt = protection.passwordSalt || getAppSetting('password_salt');
   const iterations = protection.passwordHash
     ? protection.passwordIterations
     : parseInt(getAppSetting('password_iterations') || PASSWORD_ITERATIONS, 10);
-  const material = await derivePasswordMaterial(password, salt, iterations);
-  if (!hashesMatch(material.verifier, expectedHash)) {
-    toast('Password for encryption is incorrect');
-    return null;
+
+  let password = source === 'custom' && newItemPassword ? newItemPassword : null;
+  let material = null;
+  let errorText = '';
+  while (!material) {
+    if (!password) {
+      password = await requestEncryptionPassword(source, errorText);
+      if (password === null) return null;
+    }
+
+    const candidate = await derivePasswordMaterial(password, salt, iterations);
+    password = null;
+    if (hashesMatch(candidate.verifier, expectedHash)) {
+      material = candidate;
+    } else {
+      errorText = `Incorrect ${source === 'global' ? 'global' : 'item'} password`;
+    }
   }
 
   return {
@@ -2322,7 +2378,6 @@ function openItemModal(sectionId, editId) {
   document.getElementById('secretProtectionGroup').style.display = isRef ? '' : 'none';
   document.getElementById('itemPassword').value = '';
   document.getElementById('itemPasswordConfirm').value = '';
-  document.getElementById('itemEncryptionPassword').value = '';
 
   // Reset sketch state
   sketchActive = false;
@@ -2455,7 +2510,6 @@ function closeItemModal() {
   }
   document.getElementById('itemPassword').value = '';
   document.getElementById('itemPasswordConfirm').value = '';
-  document.getElementById('itemEncryptionPassword').value = '';
   clearTimeout(autoSaveTimer);
   closeModal('itemModal');
   renderSidebar();
@@ -2463,6 +2517,20 @@ function closeItemModal() {
 }
 
 async function saveItem() {
+  if (itemSaveInProgress) {
+    toast('Save already in progress');
+    return;
+  }
+
+  itemSaveInProgress = true;
+  try {
+    await saveItemOnce();
+  } finally {
+    itemSaveInProgress = false;
+  }
+}
+
+async function saveItemOnce() {
   const title     = document.getElementById('itemTitle').value.trim();
   const desc      = document.getElementById('itemDesc').value.trim();
   const link      = document.getElementById('itemLink').value.trim();
@@ -2912,6 +2980,7 @@ function saveSettings() {
 document.addEventListener('click', (e) => {
   if (e.target.classList.contains('modal-overlay')) {
     if (e.target.id === 'itemModal') { closeItemModal(); return; }
+    if (e.target.id === 'encryptionPasswordModal') { cancelEncryptionPasswordPrompt(); return; }
     e.target.classList.remove('active');
   }
 });
@@ -2919,6 +2988,8 @@ document.addEventListener('click', (e) => {
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    const encryptionModal = document.getElementById('encryptionPasswordModal');
+    if (encryptionModal.classList.contains('active')) { cancelEncryptionPasswordPrompt(); return; }
     const itemModal = document.getElementById('itemModal');
     if (itemModal.classList.contains('active')) { closeItemModal(); return; }
     document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));

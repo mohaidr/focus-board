@@ -66,6 +66,8 @@ It is not a medical product, but it is intentionally designed to support focus, 
 
 Encryption is optional per protected item. Protected items without encryption remain plaintext in IndexedDB, JSON exports, and backup files. Encryption keys are derived for the immediate operation and are never persisted or cached. While an encrypted item is unlocked, its decrypted content necessarily exists transiently in page memory and the rendered interface until the item is locked or the page is reloaded.
 
+Encrypted saves confirm the selected global or existing item password at save time. A new item password entered in the same form is used for that save without asking twice. The password input and derived key are discarded after the operation.
+
 ### Reminders and Attention Signals
 
 - In-app due and overdue banners
