@@ -1451,7 +1451,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
       <div class="item-detail">
         ${desc
           ? `<div class="item-detail-desc">${esc(desc)}</div>`
-          : '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>'}
+          : '<div style="color:var(--text-muted);font-size:17px;margin-bottom:10px;">No description</div>'}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
