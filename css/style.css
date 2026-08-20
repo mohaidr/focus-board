@@ -64,6 +64,10 @@ body {
 .sidebar-brand {
   padding: 24px 20px 20px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 .sidebar-brand h1 {
   font-family: 'Satisfy', cursive;
@@ -76,6 +80,27 @@ body {
   color: var(--text);
   font-weight: 400;
   opacity: 0.7;
+}
+
+.sidebar-close {
+  display: none;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sidebar-close:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
 }
 
 .sidebar-search { padding: 16px 16px 8px; }
@@ -1473,15 +1498,35 @@ body {
 }
 .sidebar-toggle:hover { background: var(--surface-hover); }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-w: 0px;
+  }
+
   .sidebar {
     position: fixed;
-    left: -100%;
+    inset: 0 0 auto;
     z-index: 150;
-    transition: left 0.25s ease;
-    width: 290px;
+    width: 100%;
+    min-width: 0;
+    height: min(88dvh, 720px);
+    max-height: 88vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 18px 40px var(--shadow);
+    transform: translateY(-100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
   }
-  .sidebar.open { left: 0; }
+  .sidebar.open {
+    transform: translateY(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+  .sidebar-nav { min-height: 0; }
+  .sidebar-close { display: flex; }
   .sidebar-toggle { display: block; }
   .main-body { padding: 18px; }
   .main-header { padding: 18px 18px 0; }
@@ -1871,24 +1916,6 @@ body {
 
   body {
     font-size: 16px;
-  }
-
-  /* Sidebar slides in from left on ultra-narrow */
-  .sidebar {
-    position: fixed;
-    left: -100%;
-    z-index: 150;
-    transition: left 0.25s ease;
-    width: 290px;
-  }
-  .sidebar.open { 
-    left: 0; 
-  }
-  .sidebar-overlay {
-    display: none;
-  }
-  .sidebar-overlay.open {
-    display: block;
   }
 
   /* Main content takes full width */

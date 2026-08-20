@@ -920,7 +920,7 @@ function renderBackupTab() {
 
   header.innerHTML = `
     <div class="main-header-left">
-      <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
       <h2>Backups</h2>
       <span class="item-total">${backups.length} file${backups.length !== 1 ? 's' : ''} · ${protectedCount} protected</span>
     </div>
@@ -1236,7 +1236,7 @@ function renderMain() {
   // No section selected
   if (!activeSectionId) {
     header.innerHTML = `<div class="main-header-left">
-      <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
     </div>`;
     const hasSections = db.exec('SELECT COUNT(*) FROM sections')[0].values[0][0] > 0;
     if (hasSections) {
@@ -1263,7 +1263,7 @@ function renderMain() {
 
   header.innerHTML = `
     <div class="main-header-left">
-      <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
       <div class="section-color-big" style="background:${escAttr(scolor)}"></div>
       <h2>${esc(sname)}</h2>
       <span class="item-total">${total} item${total !== 1 ? 's' : ''}</span>
@@ -1766,12 +1766,20 @@ function toggleSidebar() {
   const overlay = document.getElementById('sidebarOverlay');
   const isOpen = sidebar.classList.toggle('open');
   if (overlay) overlay.classList.toggle('active', isOpen);
+  document.querySelectorAll('.sidebar-toggle').forEach(button => {
+    button.setAttribute('aria-expanded', String(isOpen));
+    button.setAttribute('aria-label', isOpen ? 'Close navigation menu' : 'Open navigation menu');
+  });
 }
 
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   const overlay = document.getElementById('sidebarOverlay');
   if (overlay) overlay.classList.remove('active');
+  document.querySelectorAll('.sidebar-toggle').forEach(button => {
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-label', 'Open navigation menu');
+  });
 }
 
 
@@ -1972,7 +1980,7 @@ function renderSearchResults(term) {
 
   header.innerHTML = `
     <div class="main-header-left">
-      <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
       <h2>Search Results</h2>
       <span class="item-total">${rows.length} match${rows.length !== 1 ? 'es' : ''}</span>
     </div>`;
@@ -2993,6 +3001,7 @@ document.addEventListener('keydown', (e) => {
     const itemModal = document.getElementById('itemModal');
     if (itemModal.classList.contains('active')) { closeItemModal(); return; }
     document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    closeSidebar();
   }
   if (e.ctrlKey && e.key === 'k') {
     e.preventDefault();
