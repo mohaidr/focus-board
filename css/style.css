@@ -406,6 +406,14 @@ body {
 .item:hover .item-drag { opacity: 0.7; }
 .item-drag:active { cursor: grabbing; }
 
+.item-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
 .item-checkbox {
   width: 22px;
   height: 22px;
@@ -440,16 +448,25 @@ body {
 
 .item-title-text {
   flex: 1;
+  min-width: 0;
   font-size: 17px;
   font-weight: 400;
   line-height: 1.45;
   word-break: break-word;
 }
 
+.item-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .item-indicators {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 .item-has-link,
 .item-has-desc,
@@ -1615,6 +1632,33 @@ body {
 @media (max-width: 768px) {
   .reminder-banners {
     left: 0;
+  }
+
+  .item-row {
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .item-drag,
+  .item-checkbox,
+  .ref-item-icon {
+    margin-top: 2px;
+  }
+
+  .item-main {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .item-meta-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .item-indicators {
+    flex: 1;
   }
 }
 
