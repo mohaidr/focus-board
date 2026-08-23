@@ -924,7 +924,7 @@ function renderBackupTab() {
       <h2>Backups</h2>
       <span class="item-total">${backups.length} file${backups.length !== 1 ? 's' : ''} · ${protectedCount} protected</span>
     </div>
-    <div style="display:flex;gap:8px;">
+    <div class="board-actions">
       <button class="btn btn-ghost btn-sm" onclick="selectBackupFolder()">&#128193; Choose folder</button>
       ${folderConnected ? '<button class="btn btn-ghost btn-sm" onclick="disconnectBackupFolder()">Disconnect</button>' : ''}
       <button class="btn btn-ghost btn-sm" onclick="createBackup('manual')" ${folderConnected ? '' : 'disabled'}>&#128190; Backup now</button>
@@ -1359,6 +1359,9 @@ function renderMain() {
       for (const [iid, title, desc, link, completed, recurring, status, dueDate] of todoRows) {
         html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
       }
+      if (!todoRows.length) {
+        html += '<div class="kanban-empty">Nothing waiting here</div>';
+      }
       html += '</div>';
       if (!searchTerm) {
         html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">Add Item</div>`;
@@ -1383,6 +1386,9 @@ function renderMain() {
       for (const [iid, title, desc, link, completed, recurring, status, dueDate] of ipRows) {
         html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
       }
+      if (!ipRows.length) {
+        html += '<div class="kanban-empty">Ready when you are</div>';
+      }
       html += '</div>';
     }
     html += '</div>';
@@ -1403,6 +1409,9 @@ function renderMain() {
       html += '<div class="kanban-column-body">';
       for (const [iid, title, desc, link, completed, recurring, status, dueDate] of doneRows) {
         html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate);
+      }
+      if (!doneRows.length) {
+        html += '<div class="kanban-empty">Completed tasks land here</div>';
       }
       html += '</div>';
     }

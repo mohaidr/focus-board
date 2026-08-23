@@ -10,6 +10,15 @@
   "theme_color": "#6e8efb",
   "orientation": "any",
   "categories": ["productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "screenshots/dashora-mobile.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Dashora task board"
+    }
+  ],
   "icons": [
     {
       "src": "icons/icon-192.png",
