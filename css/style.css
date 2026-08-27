@@ -489,6 +489,8 @@ body {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 .item-has-link,
 .item-has-desc,
