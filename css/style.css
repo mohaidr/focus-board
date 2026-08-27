@@ -932,9 +932,6 @@ body {
 .kanban-col-todo .kanban-column-header { border-bottom-color: rgba(110, 142, 251, 0.2); }
 .kanban-col-ip .kanban-column-header { border-bottom-color: rgba(240, 168, 94, 0.2); }
 .kanban-col-done .kanban-column-header { border-bottom-color: rgba(76, 216, 157, 0.2); }
-.kanban-col-todo { border-top: 2px solid rgba(110, 142, 251, 0.72); }
-.kanban-col-ip { border-top: 2px solid rgba(240, 168, 94, 0.72); }
-.kanban-col-done { border-top: 2px solid rgba(76, 216, 157, 0.72); }
 
 .kanban-col-count {
   font-size: 11px;
