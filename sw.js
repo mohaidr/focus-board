@@ -1,4 +1,4 @@
-const CACHE_VERSION = 27;
+const CACHE_VERSION = 28;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -6,16 +6,19 @@ const ASSETS = [
   './manifest.json',
   './css/style.css',
   './js/db.js',
+  './js/markdown.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './screenshots/dashora-mobile.png',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm',
+  'https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js',
+  'https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js',
 ];
 
 // External CDN assets that are safe to cache long-term
-const CDN_HOSTS = ['cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+const CDN_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

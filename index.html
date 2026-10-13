@@ -111,8 +111,23 @@
              onkeydown="if(event.key==='Enter')saveItem()">
     </div>
     <div class="form-group">
-      <label>Description</label>
-      <textarea id="itemDesc" placeholder="Details, notes, context..."></textarea>
+      <label for="itemDesc">Description</label>
+      <div class="description-controls">
+        <label for="itemDescFormat">Format</label>
+        <select id="itemDescFormat" class="form-select" onchange="onDescriptionFormatChange()">
+          <option value="plain">Plain text</option>
+          <option value="markdown">Markdown</option>
+        </select>
+        <div class="description-views" id="descriptionViews" role="group" aria-label="Description view" hidden>
+          <button type="button" class="btn btn-ghost btn-sm" id="descriptionWrite" aria-pressed="true"
+                  aria-controls="itemDesc" onclick="setDescriptionEditorMode('write')">Write</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="descriptionPreview" aria-pressed="false"
+                  aria-controls="itemDescPreview" onclick="setDescriptionEditorMode('preview')">Preview</button>
+        </div>
+      </div>
+      <textarea id="itemDesc" placeholder="Details, notes, context..." aria-describedby="itemDescHint"></textarea>
+      <div id="itemDescPreview" class="item-detail-desc markdown-content description-preview" aria-live="polite" hidden></div>
+      <div id="itemDescHint" class="form-hint no-indent" hidden>Supports headings, **bold**, *italic*, lists, links, tables, and fenced code blocks. HTML is shown as text.</div>
     </div>
     <div class="form-group">
       <label>Link (optional)</label>
@@ -313,7 +328,12 @@
 
 <!--  Scripts  -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js"
+        integrity="sha384-IvVdUXkhyoD0shbjhiiOnuiTbervTaB0VJcnEcg3shUAMVOOF6lKj4ozJrCwvz6s" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js"
+        integrity="sha384-a7SzOxErzJ3ZpQz0zJ32d67dSitNzPcbfybc/ykU9KJhMgZkwqfSxlhhdJRS+XGL" crossorigin="anonymous"></script>
 <script src="js/db.js"></script>
+<script src="js/markdown.js"></script>
 <script src="js/app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {

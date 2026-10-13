@@ -1,0 +1,69 @@
+let descriptionMarkdownParser = null;
+
+function renderDescriptionContent(source, format = 'plain') {
+  if (format === 'plain') return esc(source);
+  if (format !== 'markdown') {
+    return renderDescriptionError(source, 'Unsupported description format. Original text:');
+  }
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+    return renderDescriptionError(source, 'Markdown support could not load. Check your connection and reload. Original text:');
+  }
+  if (!DOMPurify.isSupported) {
+    return renderDescriptionError(source, 'This browser cannot safely display Markdown. Original text:');
+  }
+
+  if (!descriptionMarkdownParser) {
+    descriptionMarkdownParser = new marked.Marked({
+      gfm: true,
+      breaks: true,
+      renderer: {
+        html({ text }) {
+          return esc(text);
+        },
+        link({ href, title, tokens }) {
+          const label = this.parser.parseInline(tokens);
+          const tooltip = title ? ` title="${escAttr(title)}"` : '';
+          return `<a href="${escAttr(href)}"${tooltip} target="_blank" rel="noopener noreferrer">${label}</a>`;
+        },
+        image({ href, title, text }) {
+          const tooltip = title ? ` title="${escAttr(title)}"` : '';
+          return `<img src="${escAttr(href)}" alt="${escAttr(text)}"${tooltip} loading="lazy" referrerpolicy="no-referrer">`;
+        },
+      },
+    });
+  }
+
+  return DOMPurify.sanitize(descriptionMarkdownParser.parse(source), {
+    ALLOWED_TAGS: [
+      'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'hr', 'img', 'input', 'li', 'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td',
+      'th', 'thead', 'tr', 'ul',
+    ],
+    ALLOWED_ATTR: [
+      'align', 'alt', 'checked', 'class', 'disabled', 'href', 'loading',
+      'referrerpolicy', 'rel', 'src', 'start', 'target', 'title', 'type',
+    ],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+  });
+}
+
+function renderDescriptionError(source, message) {
+  console.error(message);
+  return `<div class="description-render-error" role="alert">${esc(message)}</div><div class="description-source">${esc(source)}</div>`;
+}
+
+function renderDescription(source, format = 'plain') {
+  const markdownClass = format === 'markdown' ? ' markdown-content' : '';
+  return `<div class="item-detail-desc${markdownClass}">${renderDescriptionContent(source, format)}</div>`;
+}
+
+function validateDescriptionFormats(items) {
+  const result = items[0];
+  if (!result || !result.columns || !result.values) return;
+  const formatIndex = result.columns.indexOf('description_format');
+  if (formatIndex === -1) return;
+  if (result.values.some(row => row[formatIndex] !== 'plain' && row[formatIndex] !== 'markdown')) {
+    throw new Error('Unsupported description format in imported items');
+  }
+}

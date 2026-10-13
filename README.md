@@ -44,10 +44,40 @@ It is not a medical product, but it is intentionally designed to support focus, 
 ### Rich Item Data
 
 - Title, notes, optional link
+- Optional Markdown descriptions with Write/Preview controls
 - Due date with urgency badges
 - Add to Calendar export (.ics)
 - Recurring schedules include Daily, Weekly, Biweekly, Monthly, and Specific weekdays
 - Optional recurring reminder time
+
+### Markdown Descriptions
+
+In the item editor, change the description **Format** from **Plain text** to **Markdown**.
+Use **Write** to edit the source and **Preview** to see the formatted result before saving.
+Expand the saved item to see its formatted description on task boards, reference boards, and in search results.
+
+- Existing items, older imports/backups, and new items default to plain text until Markdown is selected
+- Titles always remain plain text
+- Supports headings, bold/italic, lists, links, images, quotes, tables, strikethrough, and code blocks
+- Markdown task-list checkboxes are display-only; they do not change the item's task status
+- Original Markdown, including indentation and line breaks, is preserved when editing, saving, exporting, and backing up
+- Protected items render only after unlocking; encrypted descriptions remain ciphertext in saved data
+- Raw HTML is displayed as text, and rendered HTML is sanitized with DOMPurify
+- Image URLs can load external content when the description is displayed; images use lazy loading and do not send a referrer
+- Markdown dependencies are version-pinned and cached for offline use after the app has loaded successfully online
+
+For example:
+
+````markdown
+## Release notes
+
+- **Review** the changes
+- [Open the issue](https://github.com/mohaidr/focus-board/issues)
+
+```js
+console.log('Ready');
+```
+````
 
 ### Reference Board Sketching
 

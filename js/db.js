@@ -62,9 +62,15 @@ function createTables() {
       recurring   INTEGER DEFAULT 0,
       sort_order  INTEGER DEFAULT 0,
       created_at  TEXT DEFAULT (datetime('now')),
+      description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'markdown')),
       FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
     )
   `);
+
+  const itemColumns = db.exec('PRAGMA table_info(items)')[0].values.map(column => column[1]);
+  if (!itemColumns.includes('description_format')) {
+    db.run("ALTER TABLE items ADD COLUMN description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'markdown'))");
+  }
 
   // Migration: add recurring column if missing
   try {
