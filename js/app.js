@@ -7,6 +7,7 @@ const COLORS = [
   '#e05577', '#e0a055', '#d4c955', '#44cc88', '#55aadd',
   '#7c6ff7', '#cc66cc', '#ff8866', '#66ccbb', '#8899bb',
 ];
+const RECURRENCE_LABELS = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly', 5: 'Custom' };
 
 /* ── Global State ── */
 let db              = null;   // set by initDB()
@@ -287,6 +288,9 @@ function runUnlockedItemAction(itemId, action, sectionId) {
     openItemModal(sectionId, itemId);
   } else if (action === 'copy') {
     copyItem(null, itemId);
+  } else if (action === 'share') {
+    shareItem(null, itemId);
+    renderMain();
   } else {
     expandedItems.add(itemId);
     renderMain();
@@ -1435,6 +1439,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
           <span class="ref-item-icon">&#128274;</span>
           <span class="item-title-text protected-item-title">${isEncrypted ? 'Encrypted item' : 'Protected item'}</span>
           <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();requestItemUnlock(${iid}, 'expand')">Unlock</button>
+          <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">Share</button>
         </div>
       </div>`;
   }
@@ -1462,6 +1467,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
         <div class="item-detail-actions" style="margin-top:10px;">
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
           <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
+          <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">&#8599; Share</button>
           ${isProtected ? `<button class="btn btn-ghost btn-sm" onclick="lockItem(event, ${iid})">&#128274; Lock</button>` : ''}
           <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
         </div>
@@ -1484,6 +1490,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
             <div class="item-indicators">${isEncrypted ? '<span title="AES-GCM encrypted">&#128272;</span>' : (isProtected ? '<span title="Password protected">&#128275;</span>' : '')}${hasSketch}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
               <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
+              <button class="item-quick-btn" title="Share" aria-label="Share item" onclick="shareItem(event, ${iid})">&#8599;</button>
               <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
             </div>
             <span class="expand-arrow">&#9654;</span>
@@ -1503,8 +1510,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
   const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
-  const recurLabels = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly', 5: 'Custom' };
-  const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${recurLabels[recurring] || ''}">${recurLabels[recurring] || '\u{1F501}'}</span>` : '';
+  const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${RECURRENCE_LABELS[recurring] || ''}">${RECURRENCE_LABELS[recurring] || '\u{1F501}'}</span>` : '';
 
   // Recurring time badge
   const recurTimeRes = db.exec('SELECT recurring_time FROM items WHERE id = ?', [iid]);
@@ -1588,6 +1594,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
           <div class="item-detail-actions">
             <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
             <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
+            <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">&#8599; Share</button>
             ${recurSelect}
             ${dueDate ? `<button class="btn btn-ghost btn-sm" onclick="addToCalendar(event, ${iid})">&#128197; Add to Calendar</button>` : ''}
             <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem(${iid})">&#10005; Delete</button>
@@ -1612,6 +1619,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
             <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${followupBadge}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
               <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
+              <button class="item-quick-btn" title="Share" aria-label="Share item" onclick="shareItem(event, ${iid})">&#8599;</button>
               <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
             </div>
             <span class="expand-arrow">&#9654;</span>
@@ -2749,7 +2757,10 @@ function copyItemText(text) {
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); done(); }
+    try {
+      if (document.execCommand('copy')) done();
+      else toast('Copy failed');
+    }
     catch (e) { toast('Copy failed'); }
     document.body.removeChild(ta);
   };
@@ -3059,6 +3070,8 @@ function saveSettings() {
 document.addEventListener('click', (e) => {
   if (e.target.classList.contains('modal-overlay')) {
     if (e.target.id === 'itemModal') { closeItemModal(); return; }
+    if (e.target.id === 'shareItemModal') { closeShareModal(); return; }
+    if (e.target.id === 'sharedItemModal') { closeSharedItemModal(); return; }
     if (e.target.id === 'encryptionPasswordModal') { cancelEncryptionPasswordPrompt(); return; }
     e.target.classList.remove('active');
   }
@@ -3067,6 +3080,8 @@ document.addEventListener('click', (e) => {
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (document.getElementById('sharedItemModal').classList.contains('active')) { closeSharedItemModal(); return; }
+    if (document.getElementById('shareItemModal').classList.contains('active')) { closeShareModal(); return; }
     const encryptionModal = document.getElementById('encryptionPasswordModal');
     if (encryptionModal.classList.contains('active')) { cancelEncryptionPasswordPrompt(); return; }
     const itemModal = document.getElementById('itemModal');
@@ -3463,6 +3478,8 @@ function dismissReminder(id, dueDate) {
    Boot
    ================================================================ */
 
+window.addEventListener('hashchange', openSharedItemFromUrl);
+openSharedItemFromUrl();
 initDB();
 initBackupSystem();
 

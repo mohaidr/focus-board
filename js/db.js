@@ -35,7 +35,7 @@ function loadFromIDB() {
 
 function persist() {
   const data = db.export();
-  saveToIDB(data.buffer);
+  return saveToIDB(data.buffer);
 }
 
 // ── Schema ──
@@ -345,6 +345,7 @@ async function initDB() {
 
   renderSidebar();
   renderMain();
+  refreshSharedItemBoards();
 
   // Check for due date notifications
   checkDueDateNotifications();

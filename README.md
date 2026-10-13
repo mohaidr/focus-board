@@ -85,6 +85,27 @@ console.log('Ready');
 - Pen and eraser tools
 - Undo and clear canvas
 
+### Share an Item
+
+Use an item's **Share** action, then **Copy link**. The URL contains a snapshot of the
+title, description and its format, link, sketch, task status, due date, recurring
+schedule/reminder, and follow-ups. No server-side record or original item ID is needed.
+Content is UTF-8 JSON encoded into the URL fragment, so Unicode and Markdown are preserved.
+Updating or deleting the original item does not change an existing shared link.
+
+- The complete URL is measured in UTF-8 bytes; URLs **greater than 2,048 bytes** trigger
+  an alert that the URL might be too long to work. The full URL remains available to copy.
+- Opening a link shows a read-only item without automatically importing it.
+- **Save to board** creates an independent copy in a matching task/reference board.
+  Recipients can choose an existing board or create a new one.
+- Protected items must be unlocked before sharing. Sharing requires confirmation that
+  the URL contains an unprotected copy; passwords and encryption credentials are excluded.
+- Anyone with the URL can read the shared content. Shared copies are not password-protected,
+  and deleting or relocking the original cannot revoke a link.
+- Malformed or unsupported shared links show an error without modifying existing items.
+- Sharing works with offline-cached app assets, but recipients still need access to the
+  app's address. A localhost or local-file URL is not a publicly hosted app address.
+
 ### Protected Reference Items
 
 - Hide a reference item's title, notes, link, and sketch behind a password prompt
@@ -155,6 +176,8 @@ Dashora/
 |  |- style.css
 |- js/
 |  |- db.js
+|  |- markdown.js
+|  |- share.js
 |  |- app.js
 |- icons/
 |- README.md
@@ -182,6 +205,14 @@ Dashora/
 - File-system backups use the File System Access API
 - Notification and audio behavior depends on browser permissions and autoplay rules
 - If the app is fully closed, client-side periodic reminder checks do not run
+
+## Tests
+
+Run the share URL round-trip, validation, and exact byte-boundary tests with Node.js:
+
+```powershell
+node --test tests\share.test.js
+```
 
 ## License
 

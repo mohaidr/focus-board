@@ -326,6 +326,50 @@
   </div>
 </div>
 
+<!-- Share Link Modal -->
+<div class="modal-overlay" id="shareItemModal" role="dialog" aria-modal="true" aria-labelledby="shareItemTitle">
+  <div class="modal">
+    <h2 id="shareItemTitle">Share item</h2>
+    <p class="share-notice">All item content is included in this URL. Anyone with the link can read the shared copy. Passwords and encryption are not included.</p>
+    <div class="form-group">
+      <label for="itemShareUrl">Share URL</label>
+      <textarea id="itemShareUrl" readonly spellcheck="false" aria-describedby="itemShareUrlLength"></textarea>
+      <div class="form-hint no-indent" id="itemShareUrlLength"></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeShareModal()">Close</button>
+      <button type="button" class="btn btn-primary" onclick="copyItemShareUrl()">Copy link</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shared Item Viewer -->
+<div class="modal-overlay" id="sharedItemModal" role="dialog" aria-modal="true" aria-labelledby="sharedItemTitle">
+  <div class="modal shared-item-modal">
+    <h2 id="sharedItemTitle">Shared item</h2>
+    <p class="share-notice">This is a read-only snapshot from the URL. It is not added to your boards unless you save a copy.</p>
+    <div class="form-error" id="sharedItemError" role="alert"></div>
+    <div id="sharedItemContent"></div>
+    <div class="shared-item-save" id="sharedItemSaveGroup" hidden>
+      <div class="form-group">
+        <label for="sharedItemBoard">Save a copy to</label>
+        <select class="form-select" id="sharedItemBoard" onchange="onSharedItemBoardChange()" disabled>
+          <option value="">Loading boards...</option>
+        </select>
+      </div>
+      <div class="form-group" id="sharedItemNewBoardGroup" hidden>
+        <label for="sharedItemBoardName">New board name</label>
+        <input type="text" id="sharedItemBoardName" value="Shared items">
+      </div>
+      <div class="form-error" id="sharedItemSaveError" role="alert"></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="sharedItemClose" onclick="closeSharedItemModal()">Close</button>
+      <button type="button" class="btn btn-primary" id="sharedItemSave" onclick="saveSharedItemCopy()" disabled>Save to board</button>
+    </div>
+  </div>
+</div>
+
 <!--  Scripts  -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js"
@@ -334,6 +378,7 @@
         integrity="sha384-a7SzOxErzJ3ZpQz0zJ32d67dSitNzPcbfybc/ykU9KJhMgZkwqfSxlhhdJRS+XGL" crossorigin="anonymous"></script>
 <script src="js/db.js"></script>
 <script src="js/markdown.js"></script>
+<script src="js/share.js"></script>
 <script src="js/app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
