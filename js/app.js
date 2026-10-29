@@ -1127,6 +1127,10 @@ function renderSidebar() {
 
   let html = `
     <div class="nav-label">Utilities</div>
+    <button type="button" class="nav-item dashboard-nav ${activeView === 'dashboard' ? 'active' : ''}" ${activeView === 'dashboard' ? 'aria-current="page"' : ''} onclick="selectDashboardTab()">
+      <span class="nav-dot" style="background:var(--success)"></span>
+      <span class="nav-name">Dashboard</span>
+    </button>
     <div class="nav-item ${activeView === 'backup' ? 'active' : ''}" onclick="selectBackupTab()">
       <div class="nav-dot" style="background:var(--accent)"></div>
       <span class="nav-name">Backups</span>
@@ -1151,7 +1155,7 @@ function renderSidebar() {
   }
   const visibleTasks = taskRows.slice(0, taskBoardsVisible);
   for (const [id, name, color] of visibleTasks) {
-    const isActive = id === activeSectionId ? 'active' : '';
+    const isActive = activeView === 'board' && id === activeSectionId ? 'active' : '';
     const todo   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 0', [id])[0].values[0][0];
     const inProg = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 1', [id])[0].values[0][0];
     const done   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 2', [id])[0].values[0][0];
@@ -1180,7 +1184,7 @@ function renderSidebar() {
   }
   const visibleRefs = refRows.slice(0, refBoardsVisible);
   for (const [id, name, color] of visibleRefs) {
-    const isActive = id === activeSectionId ? 'active' : '';
+    const isActive = activeView === 'board' && id === activeSectionId ? 'active' : '';
     const total = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ?', [id])[0].values[0][0];
     html += renderNavItem(id, name, color, isActive, `${total}`);
   }
@@ -1232,6 +1236,11 @@ function renderMain() {
   const header    = document.getElementById('mainHeader');
   const body      = document.getElementById('mainBody');
   const searchTerm = sectionSearchTerm;
+
+  if (activeView === 'dashboard') {
+    renderDashboard();
+    return;
+  }
 
   if (activeView === 'backup') {
     renderBackupTab();
@@ -1901,7 +1910,7 @@ function onColumnDrop(e, status) {
 
   const completed = status === 2 ? 1 : 0;
   const completedAt = status === 2 ? new Date().toISOString() : null;
-  db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [status, completed, completedAt, dragItemId]);
+  db.run('UPDATE items SET completed_at = CASE WHEN status = ? THEN completed_at ELSE ? END, status = ?, completed = ? WHERE id = ?', [status, completedAt, status, completed, dragItemId]);
 
   persist();
   dragItemId = null;
@@ -2077,7 +2086,7 @@ function setStatus(event, id, status) {
   event.stopPropagation();
   const completed = status === 2 ? 1 : 0;
   const completedAt = status === 2 ? new Date().toISOString() : null;
-  db.run('UPDATE items SET status = ?, completed = ?, completed_at = ? WHERE id = ?', [status, completed, completedAt, id]);
+  db.run('UPDATE items SET completed_at = CASE WHEN status = ? THEN completed_at ELSE ? END, status = ?, completed = ? WHERE id = ?', [status, completedAt, status, completed, id]);
   persist();
   renderMain();
   renderSidebar();

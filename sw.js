@@ -1,4 +1,4 @@
-const CACHE_VERSION = 29;
+const CACHE_VERSION = 30;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -8,10 +8,10 @@ const ASSETS = [
   './js/db.js',
   './js/markdown.js',
   './js/share.js',
+  './js/dashboard.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './screenshots/dashora-mobile.png',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm',
   'https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js',

@@ -50,6 +50,26 @@ It is not a medical product, but it is intentionally designed to support focus, 
 - Recurring schedules include Daily, Weekly, Biweekly, Monthly, and Specific weekdays
 - Optional recurring reminder time
 
+### Task Performance Dashboard
+
+Open **Dashboard** in the sidebar for a local, read-only overview of task boards:
+
+- Completed tasks per day, with a 7-day or 30-day view (including today)
+- Current completion rate, open tasks, and overdue tasks
+- Task-status distribution and per-board completion progress
+- A board filter and clickable board names to return to work
+- Accessible daily-count tables alongside the charts
+
+Reference items and follow-ups are excluded. Date filters affect completion activity
+only; workload metrics always describe current tasks. Daily counts use your local
+time zone. Date-only deadlines are overdue after the end of that local day.
+
+This is a snapshot of stored tasks, not a permanent activity log: deleting a task
+(including auto-deletion), reopening it, or resetting a recurring task removes its
+previous completion from the dashboard. Done tasks without a valid completion
+timestamp still count toward progress, but not daily activity. No data leaves
+your device and no extra charting dependencies are required.
+
 ### Markdown Descriptions
 
 In the item editor, change the description **Format** from **Plain text** to **Markdown**.
@@ -176,6 +196,7 @@ Dashora/
 |  |- style.css
 |- js/
 |  |- db.js
+|  |- dashboard.js
 |  |- markdown.js
 |  |- share.js
 |  |- app.js
@@ -212,6 +233,12 @@ Run the share URL round-trip, validation, and exact byte-boundary tests with Nod
 
 ```powershell
 node --test tests\share.test.js
+```
+
+Run dashboard calculations and rendering tests:
+
+```powershell
+node --test tests\dashboard.test.js
 ```
 
 ## License
