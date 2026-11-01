@@ -1485,13 +1485,12 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
 
   return `
     <div class="item ref-item ${sketchData ? 'sketch-item' : ''} ${expandedCls}" data-item-id="${iid}"
-         draggable="true"
-         ondragstart="onItemDragStart(event, ${iid})"
          ondragover="onItemDragOver(event, ${iid})"
          ondragleave="onItemDragLeave(event)"
          ondrop="onItemDrop(event, ${iid})">
       <div class="item-row" onclick="toggleExpand(${iid})">
-        <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
+        <span class="item-drag" draggable="true" ondragstart="onItemDragStart(event, ${iid})"
+              onclick="event.stopPropagation()" title="Drag to move item" aria-label="Drag to move item">&#9776;</span>
         <span class="ref-item-icon">${icon}</span>
         <div class="item-main">
           <span class="item-title-text">${esc(title)}</span>
@@ -1614,13 +1613,12 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
 
   return `
     <div class="item ${statusCls} ${expandedCls}" data-item-id="${iid}"
-         draggable="true"
-         ondragstart="onItemDragStart(event, ${iid})"
          ondragover="onItemDragOver(event, ${iid})"
          ondragleave="onItemDragLeave(event)"
          ondrop="onItemDrop(event, ${iid})">
       <div class="item-row" onclick="toggleExpand(${iid})">
-        <span class="item-drag" onmousedown="event.stopPropagation()">&#9776;</span>
+        <span class="item-drag" draggable="true" ondragstart="onItemDragStart(event, ${iid})"
+              onclick="event.stopPropagation()" title="Drag to move item" aria-label="Drag to move item">&#9776;</span>
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <div class="item-main">
           <span class="item-title-text">${esc(title)}</span>
@@ -1823,9 +1821,12 @@ function closeSidebar() {
    ================================================================ */
 
 function onItemDragStart(e, iid) {
+  e.stopPropagation();
   dragItemId = iid;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', iid);
+  const item = e.currentTarget.closest('.item');
+  e.dataTransfer.setDragImage(item, 0, 0);
   requestAnimationFrame(() => {
     const el = document.querySelector(`[data-item-id="${iid}"]`);
     if (el) el.classList.add('dragging');

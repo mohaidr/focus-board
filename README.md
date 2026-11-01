@@ -37,7 +37,7 @@ It is not a medical product, but it is intentionally designed to support focus, 
 ### Task Flow (Kanban)
 
 - To Do, In Progress, Done
-- Drag items across columns
+- Drag items by their grip icon across columns or to reorder them
 - Expand/collapse item details
 - Optional auto-delete of old completed tasks
 
@@ -45,6 +45,7 @@ It is not a medical product, but it is intentionally designed to support focus, 
 
 - Title, notes, optional link
 - Optional Markdown descriptions with Write/Preview controls
+- Highlight description text and copy selected passages with Ctrl+C (Cmd+C on macOS)
 - Due date with urgency badges
 - Add to Calendar export (.ics)
 - Recurring schedules include Daily, Weekly, Biweekly, Monthly, and Specific weekdays
@@ -239,6 +240,12 @@ Run dashboard calculations and rendering tests:
 
 ```powershell
 node --test tests\dashboard.test.js
+```
+
+Run selectable-description and item drag-handle regression tests:
+
+```powershell
+node --test tests\selection.test.js
 ```
 
 ## License
