@@ -46,6 +46,7 @@ let itemSaveInProgress = false;
 let fullscreenItemId = null;
 let descriptionEditorSession = 0;
 let descriptionImagePastePending = false;
+let itemEditorChanged = false;
 
 
 /* ================================================================
@@ -334,6 +335,7 @@ function onRecurringChange() {
 function clearRecurringTime() {
   document.getElementById('itemRecurringTime').value = '';
   document.getElementById('recurringTimeClearBtn').style.display = 'none';
+  markItemEditorChanged();
 }
 
 function formatRecurringTime(timeStr) {
@@ -372,6 +374,7 @@ function formatDueDate(dateStr) {
 }
 
 function clearDueDate() {
+  markItemEditorChanged();
   document.getElementById('itemDueDate').value = '';
   document.getElementById('dueDateClearBtn').style.display = 'none';
 }
@@ -2681,6 +2684,7 @@ function openItemModal(sectionId, editId) {
   }
 
   onDescriptionFormatChange();
+  itemEditorChanged = false;
   modal.classList.add('active');
   titleInput.focus();
 }
@@ -2693,6 +2697,7 @@ function toggleSketchCanvas() {
 }
 
 function removeSketch() {
+  markItemEditorChanged();
   sketchActive = false;
   // Clear and hide canvas
   const canvas = document.getElementById('sketchCanvas');
@@ -2706,7 +2711,20 @@ function removeSketch() {
   document.getElementById('sketchToggleWrap').style.display = '';
 }
 
-function closeItemModal() {
+function markItemEditorChanged() {
+  if (document.getElementById('itemModal').classList.contains('active')) itemEditorChanged = true;
+}
+
+function closeItemModal(saved = false) {
+  if (!saved) {
+    if (itemSaveInProgress) {
+      toast('Please wait for the save to finish before closing.');
+      return;
+    }
+    if ((itemEditorChanged || descriptionImagePastePending) &&
+        !confirm('Close the editor? Any changes not saved will be discarded.')) return;
+  }
+  itemEditorChanged = false;
   descriptionEditorSession++;
   // Clean up canvas if active
   if (sketchActive) {
@@ -2741,6 +2759,9 @@ async function saveItem() {
   itemSaveInProgress = true;
   try {
     await saveItemOnce();
+  } catch (error) {
+    console.error('Could not save item', error);
+    toast('Could not save item: ' + error.message);
   } finally {
     itemSaveInProgress = false;
   }
@@ -2831,8 +2852,8 @@ async function saveItemOnce() {
     if (!protection.isProtected || encryption.isEncrypted) unlockedProtectedItems.delete(itemId);
   }
 
-  persist();
-  closeItemModal();
+  await persist();
+  closeItemModal(true);
   renderSidebar();
   renderMain();
   checkDueDateNotifications();
@@ -3202,7 +3223,7 @@ function saveSettings() {
 // Close modals on overlay click
 document.addEventListener('click', (e) => {
   if (e.target.classList.contains('modal-overlay')) {
-    if (e.target.id === 'itemModal') { closeItemModal(); return; }
+    if (e.target.id === 'itemModal') return;
     if (e.target.id === 'shareItemModal') { closeShareModal(); return; }
     if (e.target.id === 'sharedItemModal') { closeSharedItemModal(); return; }
     if (e.target.id === 'encryptionPasswordModal') { cancelEncryptionPasswordPrompt(); return; }
@@ -3326,6 +3347,8 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Attach auto-save listeners to item modal fields
+document.getElementById('itemModal').addEventListener('input', markItemEditorChanged);
+document.getElementById('itemModal').addEventListener('change', markItemEditorChanged);
 ['itemTitle', 'itemDesc', 'itemLink'].forEach(id => {
   document.getElementById(id).addEventListener('input', scheduleAutoSave);
 });
@@ -3421,6 +3444,7 @@ function sketchPointerDown(e) {
   sketchCtx.beginPath();
   sketchCtx.arc(sketchLastPoint.x, sketchLastPoint.y, sketchCtx.lineWidth / 2, 0, Math.PI * 2);
   sketchCtx.fill();
+  markItemEditorChanged();
 
   // Capture pointer for reliable tracking even outside canvas
   canvas.setPointerCapture(e.pointerId);
@@ -3460,6 +3484,7 @@ function sketchPointerUp(e) {
   sketchDrawing = false;
   sketchLastPoint = null;
   sketchCtx.globalCompositeOperation = 'source-over';
+  markItemEditorChanged();
   scheduleAutoSave();
 }
 
@@ -3475,12 +3500,14 @@ function updateSketchSize() {
 
 function sketchUndo() {
   if (!sketchHistory.length) return;
+  markItemEditorChanged();
   const canvas = document.getElementById('sketchCanvas');
   const img = sketchHistory.pop();
   sketchCtx.putImageData(img, 0, 0);
 }
 
 function sketchClear() {
+  markItemEditorChanged();
   const canvas = document.getElementById('sketchCanvas');
   sketchHistory.push(sketchCtx.getImageData(0, 0, canvas.width, canvas.height));
   sketchCtx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));

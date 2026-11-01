@@ -1297,6 +1297,13 @@ body {
   line-height: 1.6;
   margin-bottom: 16px;
 }
+.item-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.item-editor-header .btn { flex-shrink: 0; }
 #itemShareUrl { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
 .shared-item-modal { width: 700px; }
 .item-fullscreen {

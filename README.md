@@ -51,6 +51,12 @@ It is not a medical product, but it is intentionally designed to support focus, 
 - Recurring schedules include Daily, Weekly, Biweekly, Monthly, and Specific weekdays
 - Optional recurring reminder time
 
+The item editor ignores clicks outside its panel. Use **Close** or **Escape**
+to exit; after edits, it asks before discarding anything not saved. A simple
+event-driven flag tracks edits (no content hashing). The prompt is conservative:
+it may still appear after undoing edits or auto-saving. Successful manual saves
+close without prompting; failed saves keep the editor open.
+
 ### Full-screen Item View
 
 Use the **Full screen** button in an item's quick actions or expanded details to
@@ -282,6 +288,12 @@ Run image paste, supported-format, and asynchronous editor-safety tests:
 
 ```powershell
 node --test tests\image-paste.test.js
+```
+
+Run editor close, discard confirmation, and save-failure tests:
+
+```powershell
+node --test tests\editor-close.test.js
 ```
 
 ## License

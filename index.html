@@ -102,7 +102,11 @@
 <!--  Item Modal  -->
 <div class="modal-overlay" id="itemModal">
   <div class="modal" id="itemModalInner">
-    <h2 id="itemModalTitle">New Item</h2>
+    <div class="item-editor-header">
+      <h2 id="itemModalTitle">New Item</h2>
+      <button type="button" class="btn btn-ghost btn-sm" aria-label="Close item editor"
+              onclick="closeItemModal()">Close &#10005;</button>
+    </div>
     <input type="hidden" id="editItemId">
     <input type="hidden" id="itemSectionId">
     <div class="form-group">
@@ -214,7 +218,7 @@
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeItemModal()">Cancel</button>
+      <button type="button" class="btn btn-ghost" onclick="closeItemModal()">Close</button>
       <button class="btn btn-primary" onclick="saveItem()">Save</button>
     </div>
   </div>
