@@ -1,4 +1,45 @@
 let descriptionMarkdownParser = null;
+let descriptionMarkdownConverter = null;
+
+function convertDescriptionHtmlToMarkdown(html) {
+  if (typeof TurndownService === 'undefined' || typeof turndownPluginGfm === 'undefined' ||
+      typeof DOMPurify === 'undefined' || !DOMPurify.isSupported) {
+    throw new Error('Formatted paste support could not load. Check your connection and reload.');
+  }
+  const fragment = DOMPurify.sanitize(html, {
+    RETURN_DOM_FRAGMENT: true,
+    ALLOWED_TAGS: [
+      'a', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
+      'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input', 'li', 'ol', 'p', 'pre', 's',
+      'span', 'strike', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+    ],
+    ALLOWED_ATTR: ['align', 'alt', 'checked', 'class', 'href', 'src', 'start', 'title', 'type'],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+  });
+  // Markdown tables require a header, even when the copied table has none.
+  fragment.querySelectorAll('table').forEach(table => {
+    const firstRow = table.rows[0];
+    if (!firstRow || Array.from(firstRow.cells).some(cell => cell.tagName === 'TH')) return;
+    Array.from(firstRow.cells).forEach(cell => {
+      const header = cell.ownerDocument.createElement('th');
+      if (cell.hasAttribute('align')) header.setAttribute('align', cell.getAttribute('align'));
+      header.append(...cell.childNodes);
+      cell.replaceWith(header);
+    });
+  });
+  if (!descriptionMarkdownConverter) {
+    descriptionMarkdownConverter = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced',
+      bulletListMarker: '-',
+    });
+    descriptionMarkdownConverter.use(turndownPluginGfm.gfm);
+  }
+  const container = document.createElement('div');
+  container.append(fragment);
+  return descriptionMarkdownConverter.turndown(container);
+}
 
 function renderDescriptionContent(source, format = 'plain') {
   if (format === 'plain') return esc(source);

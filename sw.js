@@ -1,4 +1,4 @@
-const CACHE_VERSION = 30;
+const CACHE_VERSION = 31;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -16,6 +16,8 @@ const ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm',
   'https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js',
   'https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js',
+  'https://cdn.jsdelivr.net/npm/turndown@7.2.2/dist/turndown.js',
+  'https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js',
 ];
 
 // External CDN assets that are safe to cache long-term

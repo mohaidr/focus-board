@@ -2407,6 +2407,28 @@ function onDescriptionFormatChange() {
   setDescriptionEditorMode('write');
 }
 
+function onDescriptionPaste(event) {
+  if (document.getElementById('itemDescFormat').value !== 'markdown' || !event.clipboardData) return;
+  const html = event.clipboardData.getData('text/html');
+  if (!html.trim()) return;
+  let markdown;
+  try {
+    markdown = convertDescriptionHtmlToMarkdown(html);
+  } catch (error) {
+    console.error('Formatted description paste failed', error);
+    toast('Could not convert formatted text. Pasting plain text instead.');
+    return;
+  }
+  if (!markdown) return;
+  event.preventDefault();
+  const input = event.currentTarget;
+  // Native insertion preserves the editor's undo history where supported.
+  if (!document.execCommand('insertText', false, markdown)) {
+    input.setRangeText(markdown, input.selectionStart, input.selectionEnd, 'end');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
 function setDescriptionEditorMode(mode) {
   const preview = mode === 'preview' && document.getElementById('itemDescFormat').value === 'markdown';
   document.getElementById('itemDesc').hidden = preview;
@@ -3199,6 +3221,7 @@ window.addEventListener('beforeunload', () => {
   document.getElementById(id).addEventListener('input', scheduleAutoSave);
 });
 document.getElementById('itemDesc').addEventListener('input', updateDescriptionPreview);
+document.getElementById('itemDesc').addEventListener('paste', onDescriptionPaste);
 ['itemRecurring', 'itemDueDate', 'itemDescFormat'].forEach(id => {
   document.getElementById(id).addEventListener('change', scheduleAutoSave);
 });

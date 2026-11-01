@@ -80,6 +80,9 @@ Expand the saved item to see its formatted description on task boards, reference
 - Existing items, older imports/backups, and new items default to plain text until Markdown is selected
 - Titles always remain plain text
 - Supports headings, bold/italic, lists, links, images, quotes, tables, strikethrough, and code blocks
+- In Markdown mode, pasting formatted text converts clipboard HTML to Markdown locally. Plain text mode and text-only clipboard content are unchanged; use Ctrl+Shift+V to paste without conversion
+- Basic tables are supported; the first row becomes the Markdown header if the copied table has none. Fonts, colors, merged cells, and complex layouts are not preserved
+- If conversion support fails to load, a notification is shown and the text is pasted normally
 - Markdown task-list checkboxes are display-only; they do not change the item's task status
 - Original Markdown, including indentation and line breaks, is preserved when editing, saving, exporting, and backing up
 - Protected items render only after unlocking; encrypted descriptions remain ciphertext in saved data
@@ -246,6 +249,12 @@ Run selectable-description and item drag-handle regression tests:
 
 ```powershell
 node --test tests\selection.test.js
+```
+
+Run Markdown paste mode, selection-replacement, and failure-handling tests:
+
+```powershell
+node --test tests\markdown-paste.test.js
 ```
 
 ## License
