@@ -44,6 +44,8 @@ const ENCRYPTION_VERSION = 1;
 let encryptionPasswordPromptResolve = null;
 let itemSaveInProgress = false;
 let fullscreenItemId = null;
+let descriptionEditorSession = 0;
+let descriptionImagePastePending = false;
 
 
 /* ================================================================
@@ -2447,6 +2449,7 @@ async function resolveItemEncryption(protection, payload) {
 }
 
 function onDescriptionFormatChange() {
+  descriptionEditorSession++;
   const isMarkdown = document.getElementById('itemDescFormat').value === 'markdown';
   document.getElementById('descriptionViews').hidden = !isMarkdown;
   document.getElementById('itemDescHint').hidden = !isMarkdown;
@@ -2460,6 +2463,17 @@ function onDescriptionFormatChange() {
 
 function onDescriptionPaste(event) {
   if (document.getElementById('itemDescFormat').value !== 'markdown' || !event.clipboardData) return;
+  const imageItems = Array.from(event.clipboardData.items || [])
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'));
+  if (imageItems.length) {
+    event.preventDefault();
+    if (descriptionImagePastePending || itemSaveInProgress) {
+      toast('An image paste or save is still in progress. Please wait.');
+      return;
+    }
+    const files = imageItems.map(item => item.getAsFile());
+    return pasteDescriptionImages(event.currentTarget, files);
+  }
   const html = event.clipboardData.getData('text/html');
   if (!html.trim()) return;
   let markdown;
@@ -2472,11 +2486,42 @@ function onDescriptionPaste(event) {
   }
   if (!markdown) return;
   event.preventDefault();
-  const input = event.currentTarget;
+  insertDescriptionText(event.currentTarget, markdown);
+}
+
+function insertDescriptionText(input, text) {
   // Native insertion preserves the editor's undo history where supported.
-  if (!document.execCommand('insertText', false, markdown)) {
-    input.setRangeText(markdown, input.selectionStart, input.selectionEnd, 'end');
+  if (!document.execCommand('insertText', false, text)) {
+    input.setRangeText(text, input.selectionStart, input.selectionEnd, 'end');
     input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+async function pasteDescriptionImages(input, files) {
+  const session = descriptionEditorSession;
+  const original = input.value;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  descriptionImagePastePending = true;
+  try {
+    const images = await Promise.all(files.map(readDescriptionImage));
+    if (session !== descriptionEditorSession ||
+        !document.getElementById('itemModal').classList.contains('active') ||
+        document.getElementById('itemDescFormat').value !== 'markdown' ||
+        input.hidden || document.activeElement !== input ||
+        input.value !== original || input.selectionStart !== start || input.selectionEnd !== end) {
+      throw new Error('The editor changed while reading the image. Paste it again at the desired position.');
+    }
+    const before = original.slice(0, start);
+    const after = original.slice(end);
+    const prefix = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+    const suffix = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+    insertDescriptionText(input, prefix + images.join('\n\n') + suffix);
+  } catch (error) {
+    console.error('Description image paste failed', error);
+    toast('Could not paste image: ' + error.message);
+  } finally {
+    descriptionImagePastePending = false;
   }
 }
 
@@ -2662,6 +2707,7 @@ function removeSketch() {
 }
 
 function closeItemModal() {
+  descriptionEditorSession++;
   // Clean up canvas if active
   if (sketchActive) {
     const canvas = document.getElementById('sketchCanvas');
@@ -2683,6 +2729,10 @@ function closeItemModal() {
 }
 
 async function saveItem() {
+  if (descriptionImagePastePending) {
+    toast('Please wait for the image paste to finish before saving.');
+    return;
+  }
   if (itemSaveInProgress) {
     toast('Save already in progress');
     return;

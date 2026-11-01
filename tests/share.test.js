@@ -64,6 +64,12 @@ test('reference items and literal plain text round-trip', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(context.decodeItemShareUrl(context.encodeItemShareUrl(item)))), item);
 });
 
+test('embedded description images survive share encoding and decoding', () => {
+  const { context } = setup();
+  const item = { ...fixture(), description: '![Pasted image](data:image/png;base64,aGVsbG8=)' };
+  assert.deepEqual(JSON.parse(JSON.stringify(context.decodeItemShareUrl(context.encodeItemShareUrl(item)))), item);
+});
+
 test('existing query parameters are preserved and old fragments are replaced', () => {
   const { context } = setup();
   const url = new URL(context.encodeItemShareUrl(fixture(), baseUrl + '?board=1#old'));

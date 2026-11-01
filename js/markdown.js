@@ -1,6 +1,30 @@
 let descriptionMarkdownParser = null;
 let descriptionMarkdownConverter = null;
 
+function readDescriptionImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
+      reject(new Error('Paste a PNG, JPEG, GIF, or WebP image.'));
+      return;
+    }
+    if (!file.size) {
+      reject(new Error('The copied image is empty.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string' || !reader.result.startsWith(`data:${file.type};base64,`)) {
+        reject(new Error('Could not read the copied image.'));
+        return;
+      }
+      resolve(`![Pasted image](${reader.result})`);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Could not read the copied image.'));
+    reader.onabort = () => reject(new Error('Image paste was cancelled.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function convertDescriptionHtmlToMarkdown(html) {
   if (typeof TurndownService === 'undefined' || typeof turndownPluginGfm === 'undefined' ||
       typeof DOMPurify === 'undefined' || !DOMPurify.isSupported) {

@@ -93,6 +93,9 @@ Expand the saved item to see its formatted description on task boards, reference
 - Titles always remain plain text
 - Supports headings, bold/italic, lists, links, images, quotes, tables, strikethrough, and code blocks
 - In Markdown mode, pasting formatted text converts clipboard HTML to Markdown locally. Plain text mode and text-only clipboard content are unchanged; use Ctrl+Shift+V to paste without conversion
+- Paste screenshots or copied PNG, JPEG, GIF, and WebP images into the Markdown description. They are embedded as data URLs at the cursor (replacing selected text), without uploading them. Preview, expanded details, and the full-screen reader display them
+- Embedded images are saved with the description, included in exports/backups and share links, and encrypted with encrypted items. Large images increase storage and share-link size; no automatic resizing or compression is applied
+- Unsupported image formats and read failures show a notification without changing the description. If you move the cursor, change the description, or leave the editor while an image is being read, paste it again
 - Basic tables are supported; the first row becomes the Markdown header if the copied table has none. Fonts, colors, merged cells, and complex layouts are not preserved
 - If conversion support fails to load, a notification is shown and the text is pasted normally
 - Markdown task-list checkboxes are display-only; they do not change the item's task status
@@ -273,6 +276,12 @@ Run full-screen reader and protected-content access tests:
 
 ```powershell
 node --test tests\fullscreen.test.js
+```
+
+Run image paste, supported-format, and asynchronous editor-safety tests:
+
+```powershell
+node --test tests\image-paste.test.js
 ```
 
 ## License
