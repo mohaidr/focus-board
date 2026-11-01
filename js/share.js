@@ -81,12 +81,12 @@ function warnIfShareUrlTooLong(url) {
   return bytes;
 }
 
-function getItemShareContent(id) {
+function getItemContent(id) {
   const protection = getItemProtection(id);
   if (!protection) throw new Error('Item not found');
-  if (protection.isProtected && isItemLocked(id, 1)) throw new Error('Unlock this item before sharing');
+  if (protection.isProtected && isItemLocked(id, 1)) throw new Error('Unlock this item to read its content');
   const decrypted = protection.isEncrypted ? decryptedProtectedItems.get(id) : null;
-  if (protection.isEncrypted && !decrypted) throw new Error('Unlock this item before sharing');
+  if (protection.isEncrypted && !decrypted) throw new Error('Unlock this item to read its content');
   const result = db.exec(`
     SELECT i.title, i.description, i.description_format, i.link, i.sketch_data,
            i.status, i.due_date, i.recurring, i.recurring_days, i.recurring_time, s.type
@@ -95,7 +95,7 @@ function getItemShareContent(id) {
   const [title, description, descriptionFormat, link, sketchData, status, dueDate,
     recurring, recurringDays, recurringTime, boardType] = result[0].values[0];
   const followups = db.exec('SELECT text, completed FROM followups WHERE item_id = ? ORDER BY sort_order, id', [id]);
-  return validateSharedItem({
+  return {
     title: decrypted ? decrypted.title : title,
     description: (decrypted ? decrypted.description : description) || '',
     descriptionFormat,
@@ -108,7 +108,11 @@ function getItemShareContent(id) {
     recurringTime: recurringTime || null,
     boardType,
     followups: followups.length ? followups[0].values.map(([text, completed]) => ({ text, completed: completed === 1 })) : [],
-  });
+  };
+}
+
+function getItemShareContent(id) {
+  return validateSharedItem(getItemContent(id));
 }
 
 function shareItem(event, id) {

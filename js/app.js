@@ -43,6 +43,7 @@ const PASSWORD_ITERATIONS = 210000;
 const ENCRYPTION_VERSION = 1;
 let encryptionPasswordPromptResolve = null;
 let itemSaveInProgress = false;
+let fullscreenItemId = null;
 
 
 /* ================================================================
@@ -291,6 +292,9 @@ function runUnlockedItemAction(itemId, action, sectionId) {
   } else if (action === 'share') {
     shareItem(null, itemId);
     renderMain();
+  } else if (action === 'fullscreen') {
+    renderMain();
+    openItemFullscreen(null, itemId);
   } else {
     expandedItems.add(itemId);
     renderMain();
@@ -1233,6 +1237,13 @@ function renderNavItem(id, name, color, isActive, countText) {
    ================================================================ */
 
 function renderMain() {
+  if (fullscreenItemId !== null) {
+    const protection = getItemProtection(fullscreenItemId);
+    if (!protection || (protection.isProtected && isItemLocked(fullscreenItemId, 1)) ||
+        (protection.isEncrypted && !decryptedProtectedItems.has(fullscreenItemId))) {
+      closeItemFullscreen();
+    }
+  }
   const header    = document.getElementById('mainHeader');
   const body      = document.getElementById('mainBody');
   const searchTerm = sectionSearchTerm;
@@ -1448,6 +1459,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
           <span class="ref-item-icon">&#128274;</span>
           <span class="item-title-text protected-item-title">${isEncrypted ? 'Encrypted item' : 'Protected item'}</span>
           <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();requestItemUnlock(${iid}, 'expand')">Unlock</button>
+          <button class="btn btn-ghost btn-sm" onclick="openItemFullscreen(event, ${iid})">Full screen</button>
           <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">Share</button>
         </div>
       </div>`;
@@ -1474,6 +1486,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
           : ''}
         ${sketchPreview}
         <div class="item-detail-actions" style="margin-top:10px;">
+          <button class="btn btn-ghost btn-sm" onclick="openItemFullscreen(event, ${iid})">&#9974; Full screen</button>
           <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
           <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
           <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">&#8599; Share</button>
@@ -1497,6 +1510,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
           <div class="item-meta-row">
             <div class="item-indicators">${isEncrypted ? '<span title="AES-GCM encrypted">&#128272;</span>' : (isProtected ? '<span title="Password protected">&#128275;</span>' : '')}${hasSketch}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
+              <button class="item-quick-btn" title="Full screen" aria-label="View item full screen" onclick="openItemFullscreen(event, ${iid})">&#9974;</button>
               <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
               <button class="item-quick-btn" title="Share" aria-label="Share item" onclick="shareItem(event, ${iid})">&#8599;</button>
               <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
@@ -1600,6 +1614,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
             <button class="btn btn-ghost btn-sm ${st === 2 ? 'btn-status-active btn-status-done' : ''}" onclick="setStatus(event, ${iid}, 2)">\u2705 Done</button>
           </div>
           <div class="item-detail-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openItemFullscreen(event, ${iid})">&#9974; Full screen</button>
             <button class="btn btn-ghost btn-sm" onclick="openItemModal(${sid}, ${iid})">&#9998; Edit</button>
             <button class="btn btn-ghost btn-sm" onclick="copyItem(event, ${iid})">&#128203; Copy</button>
             <button class="btn btn-ghost btn-sm" onclick="shareItem(event, ${iid})">&#8599; Share</button>
@@ -1625,6 +1640,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
           <div class="item-meta-row">
             <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${followupBadge}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
+              <button class="item-quick-btn" title="Full screen" aria-label="View item full screen" onclick="openItemFullscreen(event, ${iid})">&#9974;</button>
               <button class="item-quick-btn" title="Copy" onclick="copyItem(event, ${iid})">&#128203;</button>
               <button class="item-quick-btn" title="Share" aria-label="Share item" onclick="shareItem(event, ${iid})">&#8599;</button>
               <button class="item-quick-btn" title="Edit" onclick="event.stopPropagation(); openItemModal(${sid}, ${iid})">&#9998;</button>
@@ -1750,6 +1766,41 @@ function cancelFollowupEdit(event) {
   renderMain();
 }
 
+
+function openItemFullscreen(event, itemId) {
+  if (event) event.stopPropagation();
+  const protection = getItemProtection(itemId);
+  if (!protection) { toast('Item not found'); return; }
+  if ((protection.isProtected && isItemLocked(itemId, 1)) ||
+      (protection.isEncrypted && !decryptedProtectedItems.has(itemId))) {
+    requestItemUnlock(itemId, 'fullscreen');
+    return;
+  }
+  let item;
+  let content;
+  try {
+    item = getItemContent(itemId);
+    content = renderSharedItemContent(item);
+  } catch (error) {
+    console.error('Could not open full-screen item', error);
+    toast('Could not open item: ' + error.message);
+    return;
+  }
+  fullscreenItemId = itemId;
+  document.getElementById('itemFullscreenTitle').textContent = item.title;
+  const body = document.getElementById('itemFullscreenContent');
+  body.innerHTML = content;
+  body.scrollTop = 0;
+  document.getElementById('itemFullscreen').showModal();
+}
+
+function closeItemFullscreen() {
+  const dialog = document.getElementById('itemFullscreen');
+  if (dialog.open) dialog.close();
+  fullscreenItemId = null;
+  document.getElementById('itemFullscreenTitle').textContent = '';
+  document.getElementById('itemFullscreenContent').replaceChildren();
+}
 
 function toggleExpand(iid) {
   const protection = getItemProtection(iid);
@@ -3111,6 +3162,14 @@ document.addEventListener('click', (e) => {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
+  if (document.getElementById('itemFullscreen').open) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeItemFullscreen();
+    }
+    if (e.ctrlKey && e.key === 'k') e.preventDefault();
+    return;
+  }
   if (e.key === 'Escape') {
     if (document.getElementById('sharedItemModal').classList.contains('active')) { closeSharedItemModal(); return; }
     if (document.getElementById('shareItemModal').classList.contains('active')) { closeShareModal(); return; }

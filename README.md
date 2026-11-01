@@ -51,6 +51,18 @@ It is not a medical product, but it is intentionally designed to support focus, 
 - Recurring schedules include Daily, Weekly, Biweekly, Monthly, and Specific weekdays
 - Optional recurring reminder time
 
+### Full-screen Item View
+
+Use the **Full screen** button in an item's quick actions or expanded details to
+read it across the entire app viewport. This works on task boards, reference
+boards, and search results. The view includes formatted descriptions, links,
+sketches, and read-only follow-ups; text remains selectable and copyable.
+
+Use **Close** or **Escape** to return to the board without changing the item or
+its expanded state. Keyboard focus stays in the reader while it is open.
+Protected and encrypted items must be unlocked first. Locking or deleting the
+item also closes the reader and clears its displayed content.
+
 ### Task Performance Dashboard
 
 Open **Dashboard** in the sidebar for a local, read-only overview of task boards:
@@ -255,6 +267,12 @@ Run Markdown paste mode, selection-replacement, and failure-handling tests:
 
 ```powershell
 node --test tests\markdown-paste.test.js
+```
+
+Run full-screen reader and protected-content access tests:
+
+```powershell
+node --test tests\fullscreen.test.js
 ```
 
 ## License
