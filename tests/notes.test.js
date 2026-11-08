@@ -82,7 +82,7 @@ for (const exists of [false, true]) {
 test('plain note titles and bodies are escaped, with compact collapse/edit/delete controls', () => {
   const { context } = helpers();
   const html = context.renderItemNotes([{ ...plain, title: '<script>Title</script>', description: '<img src=x onerror=alert(1)>' }], 7);
-  assert.match(html, /<details class="item-note" open>/);
+  assert.match(html, /<details class="item-note" open\b/);
   assert.match(html, /&lt;script&gt;Title&lt;\/script&gt;/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(html, /openItemNoteEditor\(event, 7, 0\)/);

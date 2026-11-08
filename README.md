@@ -52,7 +52,14 @@ support as the description editor. Save the item first when creating a new item.
 The note editor is wide on desktop, with a roomy Write/Preview area and Save
 controls that stay visible while scrolling. It adapts to smaller screens.
 
-Notes appear in the order added. Click a note heading to collapse or expand it;
+With two or more notes, drag a note's grip to place it before or after another
+note in the same item. Touch dragging is supported; with the grip focused,
+**Alt+Up/Down** also moves the note. The order is saved automatically and used in
+copies, share links, full-screen reading and backups. Encrypted reordering asks
+for the encryption password, just like editing. Note text stays selectable, and
+collapsed notes retain their state when reordered.
+
+Click a note heading to collapse or expand it;
 use its **Edit** or **Delete** button to change just that note. The original
 description remains separate and is never automatically split or rewritten.
 Notes are distinct from actionable follow-ups.
@@ -351,7 +358,7 @@ node --test tests\editor-formatting.test.js tests\description-direction.test.js
 Run multiple-note, legacy migration, sharing, encryption, and auto-save tests:
 
 ```powershell
-node --test tests\notes.test.js
+node --test tests\notes.test.js tests\note-order.test.js
 ```
 
 Run theme preference, settings, startup, and light-palette contrast tests:

@@ -375,8 +375,19 @@ function renderItemNotes(notes = [], itemId = null) {
   return `<section class="item-notes" aria-label="Notes">
     ${entries.length ? '<h3 class="item-notes-heading">Notes</h3>' : ''}
     ${entries.map((note, index) => `
-      <details class="item-note" open>
+      <details class="item-note" open${itemId === null ? '' : ` data-note-item-id="${escAttr(String(itemId))}" data-note-index="${index}"
+        ondragover="onNoteDragOver(event, ${itemId}, ${index})" ondragleave="onNoteDragLeave(event)"
+        ondrop="onNoteDrop(event, ${itemId}, ${index})"`}>
         <summary>
+          ${itemId === null || entries.length < 2 ? '' : `<button type="button" class="note-drag" draggable="true"
+            aria-label="Reorder note ${index + 1}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+            title="Drag to reorder. Alt+Up/Down also moves this note."
+            onclick="event.preventDefault();event.stopPropagation()"
+            ondragstart="onNoteDragStart(event, ${itemId}, ${index})" ondragend="clearNoteDrag()"
+            onpointerdown="onNotePointerDown(event, ${itemId}, ${index})" onpointermove="onNotePointerMove(event)"
+            onpointerup="onNotePointerUp(event)" onpointercancel="onNotePointerCancel(event)"
+            onlostpointercapture="onNotePointerCancel(event)"
+            onkeydown="onNoteOrderKeydown(event, ${itemId}, ${index}, ${entries.length})">&#9776;</button>`}
           <span class="item-note-title" dir="auto">${esc(note.title || 'Note ' + (index + 1))}</span>
           ${itemId === null ? '' : `<span class="item-note-actions">
             <button type="button" class="btn btn-ghost btn-sm" aria-label="Edit note ${index + 1}"

@@ -1549,7 +1549,15 @@ body {
 .item-note-title,
 .item-description-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 17px; line-height: 1.6; }
 .item-note-title:dir(rtl) { font-family: var(--font-arabic); }
-.item-note-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.item-note summary { flex-wrap: wrap; }
+.item-note-title { flex-basis: 72px; }
+.item-note-actions { display: flex; gap: 2px; flex-shrink: 0; margin-left: auto; }
+.note-drag { width: 28px; height: 28px; flex-shrink: 0; border: 0; border-radius: 6px; padding: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; cursor: grab; touch-action: none; user-select: none; }
+.note-drag:hover, .note-drag:focus-visible { background: var(--accent-glow); color: var(--accent); }
+.note-drag:active { cursor: grabbing; }
+.note-dragging { opacity: 0.55; }
+.note-drop-before > summary { box-shadow: 0 -3px 0 var(--accent); }
+.note-drop-after > summary { box-shadow: 0 3px 0 var(--accent); }
 .item-note-actions .btn { padding: 4px 6px; font-size: 13px; }
 .item-note-actions .note-delete { color: var(--text-muted); }
 .item-note-actions .note-delete:hover { color: var(--danger); }

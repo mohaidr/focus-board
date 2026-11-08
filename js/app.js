@@ -48,6 +48,7 @@ let descriptionEditorSession = 0;
 let descriptionImagePastePending = false;
 let itemEditorChanged = false;
 let itemNoteEditor = null;
+let noteDragState = null;
 
 
 /* ================================================================
@@ -1904,6 +1905,7 @@ function onItemDragStart(e, iid) {
 }
 
 function onItemDragOver(e, targetId) {
+  if (blockNoteDragOutsideNotes(e)) return;
   e.preventDefault();
   if (dragItemId === targetId) return;
   document.querySelectorAll('.item').forEach(el => el.style.borderTop = '');
@@ -1916,6 +1918,7 @@ function onItemDragLeave(e) {
 }
 
 function onItemDrop(e, targetId) {
+  if (blockNoteDragOutsideNotes(e)) return;
   e.preventDefault();
   e.stopPropagation();
   document.querySelectorAll('.item').forEach(el => {
@@ -1961,6 +1964,7 @@ function onItemDrop(e, targetId) {
    ================================================================ */
 
 function onColumnDragOver(e, status) {
+  if (blockNoteDragOutsideNotes(e)) return;
   e.preventDefault();
   e.currentTarget.classList.add('kanban-col-dragover');
 }
@@ -1970,6 +1974,7 @@ function onColumnDragLeave(e) {
 }
 
 function onColumnDrop(e, status) {
+  if (blockNoteDragOutsideNotes(e)) return;
   e.preventDefault();
   e.currentTarget.classList.remove('kanban-col-dragover');
   document.querySelectorAll('.item').forEach(el => {
@@ -2002,9 +2007,13 @@ function onSectionDragStart(e, sid) {
   e.dataTransfer.setData('text/plain', sid);
 }
 
-function onSectionDragOver(e) { e.preventDefault(); }
+function onSectionDragOver(e) {
+  if (blockNoteDragOutsideNotes(e)) return;
+  e.preventDefault();
+}
 
 function onSectionDrop(e, targetSid) {
+  if (blockNoteDragOutsideNotes(e)) return;
   e.preventDefault();
   if (!dragSectionId || dragSectionId === targetSid) return;
 
@@ -3089,6 +3098,218 @@ async function deleteItemNote(event, itemId, index) {
   }
 }
 
+function getNoteDropIndex(from, target, after) {
+  let index = target + (after ? 1 : 0);
+  if (from < index) index--;
+  return index;
+}
+
+function createNoteDragState(itemId, index) {
+  if (itemSaveInProgress || document.getElementById('itemModal').classList.contains('active')) {
+    throw new Error('Close the editor and wait for any save to finish before moving notes.');
+  }
+  const notes = getItemContent(itemId).notes;
+  if (!Number.isInteger(index) || index < 0 || index >= notes.length) throw new Error('This note no longer exists');
+  return { itemId, index, originalNotes: JSON.stringify(notes), target: null };
+}
+
+function clearNoteDrag() {
+  const state = noteDragState;
+  noteDragState = null;
+  document.querySelectorAll('.note-dragging, .note-drop-before, .note-drop-after').forEach(note => {
+    note.classList.remove('note-dragging', 'note-drop-before', 'note-drop-after');
+  });
+  if (state?.pointerId !== undefined && state.handle.hasPointerCapture(state.pointerId)) {
+    state.handle.releasePointerCapture(state.pointerId);
+  }
+}
+
+function blockNoteDragOutsideNotes(event) {
+  if (!noteDragState) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+  if (event.type === 'drop') {
+    clearNoteDrag();
+    toast('Drop on a note within the same item.');
+  }
+  return true;
+}
+
+function setNoteDragTarget(card, index, after) {
+  if (noteDragState.target) noteDragState.target.card.classList.remove('note-drop-before', 'note-drop-after');
+  noteDragState.target = card ? { card, index, after } : null;
+  if (card && getNoteDropIndex(noteDragState.index, index, after) !== noteDragState.index) {
+    card.classList.add(after ? 'note-drop-after' : 'note-drop-before');
+  }
+}
+
+function onNoteDragStart(event, itemId, index) {
+  event.stopPropagation();
+  if (noteDragState?.mode === 'pointer') { event.preventDefault(); return; }
+  try {
+    if (!event.dataTransfer) throw new Error('Drag and drop is not available in this browser');
+    const state = createNoteDragState(itemId, index);
+    state.mode = 'native';
+    noteDragState = state;
+    dragItemId = null;
+    dragSectionId = null;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-dashora-note', JSON.stringify({ itemId, index }));
+    const card = event.currentTarget.closest('.item-note');
+    event.dataTransfer.setDragImage(card.querySelector('summary'), 10, 10);
+    requestAnimationFrame(() => { if (noteDragState === state) card.classList.add('note-dragging'); });
+  } catch (error) {
+    event.preventDefault();
+    clearNoteDrag();
+    console.error('Could not start note drag', error);
+    toast('Could not move note: ' + error.message);
+  }
+}
+
+function onNoteDragOver(event, itemId, index) {
+  if (noteDragState?.mode !== 'native') return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (noteDragState.itemId !== itemId) {
+    event.dataTransfer.dropEffect = 'none';
+    setNoteDragTarget(null);
+    return;
+  }
+  event.dataTransfer.dropEffect = 'move';
+  const card = event.currentTarget;
+  const row = card.querySelector('summary').getBoundingClientRect();
+  setNoteDragTarget(card, index, event.clientY >= row.top + row.height / 2);
+}
+
+function onNoteDragLeave(event) {
+  if (noteDragState?.mode !== 'native') return;
+  event.stopPropagation();
+  if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+  if (noteDragState.target?.card === event.currentTarget) setNoteDragTarget(null);
+}
+
+async function onNoteDrop(event, itemId, index) {
+  if (noteDragState?.mode !== 'native') return;
+  event.preventDefault();
+  event.stopPropagation();
+  const state = noteDragState;
+  const row = event.currentTarget.querySelector('summary').getBoundingClientRect();
+  const to = getNoteDropIndex(state.index, index, event.clientY >= row.top + row.height / 2);
+  clearNoteDrag();
+  if (state.itemId !== itemId) { toast('Notes can only be reordered within the same item.'); return; }
+  await moveItemNote(itemId, state.index, to, state.originalNotes);
+}
+
+function onNotePointerDown(event, itemId, index) {
+  if (event.pointerType === 'mouse' || event.button !== 0 || noteDragState) return;
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    const state = createNoteDragState(itemId, index);
+    Object.assign(state, { mode: 'pointer', pointerId: event.pointerId, handle: event.currentTarget,
+      card: event.currentTarget.closest('.item-note'), startX: event.clientX, startY: event.clientY, active: false });
+    noteDragState = state;
+    dragItemId = null;
+    dragSectionId = null;
+    state.handle.setPointerCapture(event.pointerId);
+  } catch (error) {
+    clearNoteDrag();
+    console.error('Could not start touch note drag', error);
+    toast('Could not move note: ' + error.message);
+  }
+}
+
+function onNotePointerMove(event) {
+  const state = noteDragState;
+  if (state?.mode !== 'pointer' || state.pointerId !== event.pointerId || state.handle !== event.currentTarget) return;
+  if (!state.active && Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 6) return;
+  state.active = true;
+  state.card.classList.add('note-dragging');
+  event.preventDefault();
+  event.stopPropagation();
+  const column = state.card.closest('.kanban-column-body');
+  const scroller = column && column.scrollHeight > column.clientHeight ? column : document.getElementById('mainBody');
+  if (scroller && scroller.scrollHeight > scroller.clientHeight) {
+    const bounds = scroller.getBoundingClientRect();
+    if (event.clientY > Math.min(bounds.bottom, window.innerHeight) - 32) scroller.scrollTop += 16;
+    else if (event.clientY < Math.max(bounds.top, 0) + 32) scroller.scrollTop -= 16;
+  }
+  const card = document.elementFromPoint(event.clientX, event.clientY)?.closest('.item-note[data-note-item-id]');
+  if (!card || Number(card.dataset.noteItemId) !== state.itemId) { setNoteDragTarget(null); return; }
+  const row = card.querySelector('summary').getBoundingClientRect();
+  setNoteDragTarget(card, Number(card.dataset.noteIndex), event.clientY >= row.top + row.height / 2);
+}
+
+async function onNotePointerUp(event) {
+  const state = noteDragState;
+  if (state?.mode !== 'pointer' || state.pointerId !== event.pointerId || state.handle !== event.currentTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+  clearNoteDrag();
+  if (!state.active) return;
+  if (!state.target) { toast('Drop on a note within the same item.'); return; }
+  await moveItemNote(state.itemId, state.index,
+    getNoteDropIndex(state.index, state.target.index, state.target.after), state.originalNotes);
+}
+
+function onNotePointerCancel(event) {
+  if (noteDragState?.mode === 'pointer' && noteDragState.pointerId === event.pointerId && noteDragState.handle === event.currentTarget) {
+    clearNoteDrag();
+  }
+}
+
+async function onNoteOrderKeydown(event, itemId, index, count) {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const to = index + (event.key === 'ArrowUp' ? -1 : 1);
+  if (to < 0 || to >= count) { toast('This note is already ' + (to < 0 ? 'first.' : 'last.')); return; }
+  await moveItemNote(itemId, index, to);
+}
+
+async function moveItemNote(itemId, from, to, originalNotes = null) {
+  if (itemSaveInProgress || document.getElementById('itemModal').classList.contains('active')) {
+    toast('Close the editor and wait for any save to finish before moving notes.');
+    return false;
+  }
+  itemSaveInProgress = true;
+  try {
+    const notes = getItemContent(itemId).notes;
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= notes.length || to >= notes.length) {
+      throw new Error('That note position is no longer available. Try dragging again.');
+    }
+    const expected = originalNotes === null ? JSON.stringify(notes) : originalNotes;
+    if (expected !== JSON.stringify(notes)) throw new Error('Notes changed while dragging. Try again.');
+    if (from === to) return false;
+    const selector = `.item-note[data-note-item-id="${itemId}"]`;
+    const openStates = Array.from(document.querySelectorAll(selector), card => card.open);
+    const saved = await updateItemNotes(itemId, entries => {
+      if (expected !== JSON.stringify(entries)) throw new Error('Notes changed while moving. Try again.');
+      const [note] = entries.splice(from, 1);
+      entries.splice(to, 0, note);
+      return entries;
+    });
+    if (!saved) return false;
+    if (openStates.length === notes.length) {
+      const [open] = openStates.splice(from, 1);
+      openStates.splice(to, 0, open);
+    }
+    renderMain();
+    const cards = document.querySelectorAll(selector);
+    if (cards.length === openStates.length) cards.forEach((card, index) => { card.open = openStates[index]; });
+    cards[to]?.querySelector('.note-drag')?.focus();
+    toast('Note order saved');
+    return true;
+  } catch (error) {
+    console.error('Could not reorder notes', error);
+    toast('Could not reorder notes: ' + error.message);
+    return false;
+  } finally {
+    itemSaveInProgress = false;
+  }
+}
+
 function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
   expandedItems.delete(id);
@@ -3498,6 +3719,7 @@ document.addEventListener('keydown', (e) => {
 
 // Clean up drag state
 document.addEventListener('dragend', () => {
+  clearNoteDrag();
   document.querySelectorAll('.item').forEach(el => {
     el.classList.remove('dragging');
     el.style.borderTop = '';
