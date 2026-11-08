@@ -42,6 +42,7 @@ function validateSharedItem(item) {
     description: item.description,
     descriptionFormat: item.descriptionFormat,
     descriptionDirection,
+    notes: validateItemNotes(item.notes),
     link: item.link,
     boardType: item.boardType,
     status: item.status,
@@ -92,17 +93,18 @@ function getItemContent(id) {
   if (protection.isEncrypted && !decrypted) throw new Error('Unlock this item to read its content');
   const result = db.exec(`
     SELECT i.title, i.description, i.description_format, i.link, i.sketch_data,
-           i.status, i.due_date, i.recurring, i.recurring_days, i.recurring_time, s.type, i.description_direction
+           i.status, i.due_date, i.recurring, i.recurring_days, i.recurring_time, s.type, i.description_direction, i.notes
     FROM items i JOIN sections s ON s.id = i.section_id WHERE i.id = ?`, [id]);
   if (!result.length) throw new Error('Item not found');
   const [title, description, descriptionFormat, link, sketchData, status, dueDate,
-    recurring, recurringDays, recurringTime, boardType, descriptionDirection] = result[0].values[0];
+    recurring, recurringDays, recurringTime, boardType, descriptionDirection, notes] = result[0].values[0];
   const followups = db.exec('SELECT text, completed FROM followups WHERE item_id = ? ORDER BY sort_order, id', [id]);
   return {
     title: decrypted ? decrypted.title : title,
     description: (decrypted ? decrypted.description : description) || '',
     descriptionFormat,
     descriptionDirection,
+    notes: decrypted ? validateItemNotes(decrypted.notes) : parseItemNotes(notes),
     link: (decrypted ? decrypted.link : link) || '',
     sketchData: (decrypted ? decrypted.sketchData : sketchData) || null,
     status: status || 0,
@@ -179,6 +181,7 @@ function renderSharedItemContent(item) {
   return `
     <div class="shared-item-meta">${metadata.map(text => `<span>${esc(text)}</span>`).join('')}</div>
     ${item.description ? renderDescription(item.description, item.descriptionFormat, item.descriptionDirection) : ''}
+    ${renderItemNotes(item.notes)}
     ${item.link ? `<div class="item-detail-link"><a href="${escAttr(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a></div>` : ''}
     ${item.sketchData ? `<div class="sketch-preview-large"><img src="${escAttr(item.sketchData)}" alt="Shared sketch"></div>` : ''}
     ${followups}`;
@@ -284,11 +287,11 @@ async function saveSharedItemCopy() {
       const order = db.exec('SELECT COALESCE(MAX(sort_order), 0) + 1 FROM items WHERE section_id = ?', [sectionId])[0].values[0][0];
       db.run(`INSERT INTO items
         (section_id, title, description, description_format, description_direction, link, sketch_data, status, completed,
-         completed_at, due_date, recurring, recurring_days, recurring_time, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 2 THEN datetime('now') ELSE NULL END, ?, ?, ?, ?, ?)`,
+         completed_at, due_date, recurring, recurring_days, recurring_time, sort_order, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 2 THEN datetime('now') ELSE NULL END, ?, ?, ?, ?, ?, ?)`,
       [sectionId, item.title, item.description, item.descriptionFormat, item.descriptionDirection, item.link, item.sketchData,
        item.status, item.status === 2 ? 1 : 0, item.status, item.dueDate, item.recurring,
-       item.recurringDays, item.recurringTime, order]);
+       item.recurringDays, item.recurringTime, order, JSON.stringify(item.notes)]);
       itemId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
       item.followups.forEach((followup, index) => {
         db.run('INSERT INTO followups (item_id, text, completed, sort_order) VALUES (?, ?, ?, ?)',

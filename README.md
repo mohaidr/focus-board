@@ -43,6 +43,25 @@ previews, reminders, and native date/time controls. Sketch canvases keep their
 original dark background so saved drawing colors remain readable; embedded
 images and stored item content are not recolored or modified.
 
+### Notes within an Item
+
+Expand a saved task or reference item and choose **+ Add note** below its
+description. Notes have an optional title and their own Plain text/Markdown and
+Auto/LTR/RTL controls, using the same formatting, preview, image-paste and undo
+support as the description editor. Save the item first when creating a new item.
+
+Notes appear in the order added. Click a note heading to collapse or expand it;
+use its **Edit** or **Delete** button to change just that note. The original
+description remains separate and is never automatically split or rewritten.
+Notes are distinct from actionable follow-ups.
+
+Notes are included in search, clipboard copies, share links, full-screen reading,
+exports and backups. Encrypted items encrypt their notes together with the rest
+of the content; editing or deleting an encrypted note requires the encryption
+password. Older items, backups and share links continue to work without notes.
+Unprotected notes also follow the Auto-save setting without closing the editor;
+protected notes require Save. Unsaved note edits trigger a warning before leaving.
+
 ### Boards and Navigation
 
 - Task boards and reference boards
@@ -321,6 +340,12 @@ Run Markdown formatting, keyboard, writing-direction, and persistence regression
 
 ```powershell
 node --test tests\editor-formatting.test.js tests\description-direction.test.js
+```
+
+Run multiple-note, legacy migration, sharing, encryption, and auto-save tests:
+
+```powershell
+node --test tests\notes.test.js
 ```
 
 Run theme preference, settings, startup, and light-palette contrast tests:

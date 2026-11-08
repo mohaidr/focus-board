@@ -103,7 +103,7 @@ for (const existingDirection of [false, true]) {
   });
 }
 
-function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted = false } = {}) {
+function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted = false, notes = [] } = {}) {
   const calls = [];
   const values = {
     itemTitle: 'Title', itemDesc: original, itemDescFormat: format, itemDescDirection: direction,
@@ -134,6 +134,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
       },
     },
     sketchActive: false, sketchCtx: null,
+    itemNoteEditor: null, getItemContent: () => ({ notes }),
     resolveItemProtection: async () => ({ isProtected: encrypted ? 1 : 0,
       passwordHash: null, passwordSalt: null, passwordIterations: null }),
     resolveItemEncryption: async (_, payload) => {
@@ -244,6 +245,16 @@ test('encrypted saves keep formatted content inside encryption and persist direc
   assert.equal(statement.params.includes(original), false);
 });
 
+for (const encrypted of [false, true]) {
+  test('editing the original description retains all independent notes: encrypted=' + encrypted, async () => {
+    const notes = [{ title: 'Example', description: original, descriptionFormat: 'markdown', descriptionDirection: 'rtl' }];
+    const { context, calls } = setup({ encrypted, notes });
+    await context.saveItemOnce();
+    assert.deepEqual(calls.find(call => call.payload).payload.notes, notes);
+    assert.equal(calls.find(call => call.sql).params.at(-2), encrypted ? '[]' : JSON.stringify(notes));
+  });
+}
+
 test('task, reference, and shared/full-screen readers forward direction to the common renderer', () => {
   const calls = [];
   const context = vm.createContext({
@@ -251,6 +262,7 @@ test('task, reference, and shared/full-screen readers forward direction to the c
     esc, escAttr: esc, RECURRENCE_LABELS: {},
     renderDescription: (...args) => { calls.push(args); return 'description'; },
     renderFollowups: () => '',
+    renderItemNotes: () => '',
   });
   vm.runInContext(app.slice(app.indexOf('function renderRefItem('),
     app.indexOf('function renderFollowups(')), context);
@@ -275,9 +287,10 @@ test('search results forward saved direction for both board types', () => {
     renderItem: (...args) => { calls.push(args); return 'task'; },
     renderRefItem: (...args) => { calls.push(args); return 'reference'; },
   });
+  vm.runInContext(markdown, context);
   vm.runInContext(app.slice(app.indexOf('function renderSearchResults('),
     app.indexOf('function toggleComplete(')), context);
   context.renderSearchResults('word');
   assert.equal(calls.length, 2);
-  assert.ok(calls.every(args => args.at(-1) === 'rtl' && args.at(-2) === 'markdown'));
+  assert.ok(calls.every(args => args.at(-2) === 'rtl' && args.at(-3) === 'markdown'));
 });

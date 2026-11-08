@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
 const share = fs.readFileSync(path.join(__dirname, '..', 'js', 'share.js'), 'utf8');
+const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 
 test('task and reference cards expose full-screen actions without requiring expansion', () => {
   const context = vm.createContext({
@@ -113,6 +114,7 @@ test('shared content reader preserves local data while sharing still validates i
     }] : [{ values: [['Follow-up', 1]] }] },
     validateSharedItem: () => { throw new Error('Sharing validation applied'); },
   });
+  vm.runInContext(markdown, context);
   vm.runInContext(share.slice(share.indexOf('function getItemContent('),
     share.indexOf('function shareItem(')), context);
   const content = context.getItemContent(7);
@@ -134,6 +136,7 @@ test('content retrieval uses decrypted fields, never stored ciphertext placehold
       values: [['Encrypted item', '', 'markdown', '', null, 0, null, 0, null, null, 'reference', 'rtl']],
     }] : [] },
   });
+  vm.runInContext(markdown, context);
   vm.runInContext(share.slice(share.indexOf('function getItemContent('),
     share.indexOf('function shareItem(')), context);
   const content = context.getItemContent(7);

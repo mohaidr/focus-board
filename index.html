@@ -112,12 +112,13 @@
     <input type="hidden" id="editItemId">
     <input type="hidden" id="itemSectionId">
     <div class="form-group">
-      <label>Title</label>
+      <label id="itemTitleLabel" for="itemTitle">Title</label>
       <input type="text" id="itemTitle" dir="auto" placeholder="What needs attention?"
              onkeydown="if(event.key==='Enter')saveItem()">
     </div>
+    <div class="item-note-context" id="itemNoteContext" hidden></div>
     <div class="form-group">
-      <label for="itemDesc">Description</label>
+      <label id="itemDescLabel" for="itemDesc">Description</label>
       <div class="description-controls">
         <div class="description-option">
           <label for="itemDescFormat">Format</label>
@@ -159,11 +160,11 @@
       <div id="itemDescPreview" class="item-detail-desc markdown-content description-preview" dir="auto" aria-live="polite" hidden></div>
       <div id="itemDescHint" class="form-hint no-indent" hidden>Select text or place the cursor, then use the formatting buttons. Ctrl/Cmd+B: bold; Ctrl/Cmd+I: italic; Ctrl/Cmd+K: link. Supports headings, lists, links, tables, and fenced code blocks. Paste screenshots or copied PNG, JPEG, GIF, and WebP images to embed them locally. Pasted formatted text is converted to Markdown; Ctrl+Shift+V pastes plain text. Typed HTML is shown as text.</div>
     </div>
-    <div class="form-group">
+    <div class="form-group item-only">
       <label>Link (optional)</label>
       <input type="text" id="itemLink" placeholder="https://...">
     </div>
-    <div class="secret-protection" id="secretProtectionGroup" style="display:none;">
+    <div class="secret-protection item-only" id="secretProtectionGroup" style="display:none;">
       <label class="toggle-label">
         <input type="checkbox" id="itemProtected" onchange="onItemProtectionChange()">
         <span class="toggle-slider"></span>
@@ -187,7 +188,7 @@
         <div class="form-hint no-indent secret-warning" id="itemProtectionHint">Without encryption, protection only hides content inside the app.</div>
       </div>
     </div>
-    <div class="form-group" id="recurringGroup">
+    <div class="form-group item-only" id="recurringGroup">
       <label>Recurring</label>
       <select id="itemRecurring" class="form-select" onchange="onRecurringChange()">
         <option value="0">Not recurring</option>
@@ -216,7 +217,7 @@
         <div class="form-hint">Get reminded at this time on recurring days</div>
       </div>
     </div>
-    <div class="form-group" id="dueDateGroup">
+    <div class="form-group item-only" id="dueDateGroup">
       <label>Due Date (optional)</label>
       <div class="due-date-input-wrap">
         <input type="datetime-local" id="itemDueDate" class="due-date-input">
@@ -224,7 +225,7 @@
       </div>
     </div>
     <!-- Sketch section (reference boards only) -->
-    <div class="form-group" id="sketchGroup" style="display:none;">
+    <div class="form-group item-only" id="sketchGroup" style="display:none;">
       <label>Sketch (optional)</label>
       <div id="sketchToggleWrap">
         <button class="btn btn-ghost btn-sm" id="sketchToggleBtn" onclick="toggleSketchCanvas()" type="button">&#9998; Add sketch</button>

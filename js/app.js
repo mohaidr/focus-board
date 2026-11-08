@@ -47,6 +47,7 @@ let fullscreenItemId = null;
 let descriptionEditorSession = 0;
 let descriptionImagePastePending = false;
 let itemEditorChanged = false;
+let itemNoteEditor = null;
 
 
 /* ================================================================
@@ -267,6 +268,7 @@ async function submitItemUnlock() {
           material.encryptionKey,
           protection.encryptionVersion
         );
+        decryptedPayload.notes = validateItemNotes(decryptedPayload.notes);
       }
     } else {
       valid = await passwordMatches(password, hash, salt, iterations);
@@ -298,6 +300,9 @@ function runUnlockedItemAction(itemId, action, sectionId) {
   } else if (action === 'fullscreen') {
     renderMain();
     openItemFullscreen(null, itemId);
+  } else if (action.startsWith('note:')) {
+    const index = action.slice(5);
+    openItemNoteEditor(null, itemId, index === '' ? null : Number(index));
   } else {
     expandedItems.add(itemId);
     renderMain();
@@ -1310,27 +1315,30 @@ function renderMain() {
   // Load items from DB (with search filter if active)
   const itemsRes = db.exec(
     `SELECT id, title, description, link, completed, recurring, status, due_date,
-            description_format, description_direction, protected, password_hash, password_salt, encrypted, sketch_data
+            description_format, description_direction, protected, password_hash, password_salt, encrypted, sketch_data, notes
      FROM items WHERE section_id = ? ORDER BY sort_order, id`,
     [sid]
   );
   let rows = itemsRes.length ? itemsRes[0].values : [];
   rows = rows.map(row => {
-    if (row[13] !== 1) return row;
-    const payload = decryptedProtectedItems.get(row[0]);
-    if (!payload) return row;
     const hydrated = [...row];
+    hydrated[15] = parseItemNotes(row[15]);
+    if (row[13] !== 1) return hydrated;
+    const payload = decryptedProtectedItems.get(row[0]);
+    if (!payload) return hydrated;
     hydrated[1] = payload.title || '';
     hydrated[2] = payload.description || '';
     hydrated[3] = payload.link || '';
     hydrated[14] = payload.sketchData || null;
+    hydrated[15] = validateItemNotes(payload.notes);
     return hydrated;
   });
   if (searchTerm) {
     rows = rows.filter(row => {
       if (boardType === 'reference' && isItemLocked(row[0], row[10])) return false;
       return (row[1] || '').toLowerCase().includes(searchTerm)
-        || (row[2] || '').toLowerCase().includes(searchTerm);
+        || (row[2] || '').toLowerCase().includes(searchTerm)
+        || itemNotesMatch(row[15], searchTerm);
     });
   }
 
@@ -1355,9 +1363,9 @@ function renderMain() {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
     for (const [iid, title, desc, link, completed, recurring, status, dueDate,
-      descriptionFormat, descriptionDirection, isProtected, passwordHash, passwordSalt, isEncrypted, sketchData] of rows) {
+      descriptionFormat, descriptionDirection, isProtected, passwordHash, passwordSalt, isEncrypted, sketchData, notes] of rows) {
       html += renderRefItem(
-        iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection
+        iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection, notes
       );
     }
     html += '</div>';
@@ -1386,8 +1394,9 @@ function renderMain() {
       </div>`;
     if (!todoCollapsed) {
       html += '<div class="kanban-column-body" id="itemList">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of todoRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
+      for (const row of todoRows) {
+        const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] = row;
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection, row[15]);
       }
       if (!todoRows.length) {
         html += '<div class="kanban-empty">Nothing waiting here</div>';
@@ -1413,8 +1422,9 @@ function renderMain() {
       </div>`;
     if (!inProgressCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of ipRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
+      for (const row of ipRows) {
+        const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] = row;
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection, row[15]);
       }
       if (!ipRows.length) {
         html += '<div class="kanban-empty">Ready when you are</div>';
@@ -1437,8 +1447,9 @@ function renderMain() {
       </div>`;
     if (!doneCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of doneRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
+      for (const row of doneRows) {
+        const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] = row;
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection, row[15]);
       }
       if (!doneRows.length) {
         html += '<div class="kanban-empty">Completed tasks land here</div>';
@@ -1456,7 +1467,7 @@ function renderMain() {
 
 /* ── Reference Item HTML ── */
 
-function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected, isEncrypted, descriptionFormat = 'plain', descriptionDirection = 'auto') {
+function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected, isEncrypted, descriptionFormat = 'plain', descriptionDirection = 'auto', notes = []) {
   if (isItemLocked(iid, isProtected)) {
     return `
       <div class="item ref-item protected-item locked-item" data-item-id="${iid}">
@@ -1472,7 +1483,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
 
   const expandedCls = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
-  const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
+  const hasDesc = desc || notes.length ? '<span class="item-has-desc">&#128196;</span>' : '';
   const hasSketch = sketchData ? '<span class="item-has-desc">🎨</span>' : '';
   const icon = sketchData ? '🎨' : '📄';
 
@@ -1485,7 +1496,8 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
       <div class="item-detail">
         ${desc
           ? renderDescription(desc, descriptionFormat, descriptionDirection)
-          : (!sketchData ? '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>' : '')}
+          : (!sketchData && !notes.length ? '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>' : '')}
+        ${renderItemNotes(notes, iid)}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
@@ -1531,12 +1543,12 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
 
 /* ── Single Item HTML ── */
 
-function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid, dueDate, descriptionFormat = 'plain', descriptionDirection = 'auto') {
+function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid, dueDate, descriptionFormat = 'plain', descriptionDirection = 'auto', notes = []) {
   const st = status || 0; // 0=todo, 1=in-progress, 2=done
   const statusCls  = st === 2 ? 'status-done' : st === 1 ? 'status-ip' : 'status-todo';
   const expandedCls  = isExpanded ? 'expanded' : '';
   const hasLink = link ? '<span class="item-has-link">&#128279;</span>' : '';
-  const hasDesc = desc ? '<span class="item-has-desc">&#128196;</span>' : '';
+  const hasDesc = desc || notes.length ? '<span class="item-has-desc">&#128196;</span>' : '';
   const recurBadge = recurring ? `<span class="item-recurring" title="Recurring ${RECURRENCE_LABELS[recurring] || ''}">${RECURRENCE_LABELS[recurring] || '\u{1F501}'}</span>` : '';
 
   // Recurring time badge
@@ -1607,7 +1619,8 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
       <div class="item-detail">
         ${desc
           ? renderDescription(desc, descriptionFormat, descriptionDirection)
-          : '<div style="color:var(--text-muted);font-size:17px;margin-bottom:10px;">No description</div>'}
+          : (!notes.length ? '<div style="color:var(--text-muted);font-size:17px;margin-bottom:10px;">No description</div>' : '')}
+        ${renderItemNotes(notes, iid)}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
           : ''}
@@ -2047,27 +2060,30 @@ function renderSearchResults(term) {
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
            i.recurring, i.section_id, s.name, s.color, i.status, i.due_date,
-        s.type, i.protected, i.encrypted, i.sketch_data, i.description_format, i.description_direction
+        s.type, i.protected, i.encrypted, i.sketch_data, i.description_format, i.description_direction, i.notes
     FROM items i
     JOIN sections s ON i.section_id = s.id
     ORDER BY s.sort_order, i.sort_order
   `);
 
   const allRows = (res.length ? res[0].values : []).map(row => {
-    if (row[13] !== 1) return row;
-    const payload = decryptedProtectedItems.get(row[0]);
-    if (!payload) return row;
     const hydrated = [...row];
+    hydrated[17] = parseItemNotes(row[17]);
+    if (row[13] !== 1) return hydrated;
+    const payload = decryptedProtectedItems.get(row[0]);
+    if (!payload) return hydrated;
     hydrated[1] = payload.title || '';
     hydrated[2] = payload.description || '';
     hydrated[3] = payload.link || '';
     hydrated[14] = payload.sketchData || null;
+    hydrated[17] = validateItemNotes(payload.notes);
     return hydrated;
   });
   const rows = allRows.filter(row => {
     if (row[11] === 'reference' && isItemLocked(row[0], row[12])) return false;
     return (row[1] || '').toLowerCase().includes(term)
-      || (row[2] || '').toLowerCase().includes(term);
+      || (row[2] || '').toLowerCase().includes(term)
+      || itemNotesMatch(row[17], term);
   });
 
   header.innerHTML = `
@@ -2086,7 +2102,7 @@ function renderSearchResults(term) {
   let currentSection = null;
 
   for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor,
-    status, dueDate, sectionType, isProtected, isEncrypted, sketchData, descriptionFormat, descriptionDirection] of rows) {
+    status, dueDate, sectionType, isProtected, isEncrypted, sketchData, descriptionFormat, descriptionDirection, notes] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -2098,10 +2114,10 @@ function renderSearchResults(term) {
     }
     if (sectionType === 'reference') {
       html += renderRefItem(
-        iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection
+        iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection, notes
       );
     } else {
-      html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate, descriptionFormat, descriptionDirection);
+      html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate, descriptionFormat, descriptionDirection, notes);
     }
   }
 
@@ -2421,6 +2437,10 @@ async function resolveItemEncryption(protection, payload) {
 
   const source = document.querySelector('input[name="itemPasswordSource"]:checked').value;
   const newItemPassword = document.getElementById('itemPassword').value;
+  return encryptProtectedItemContent(protection, payload, source, newItemPassword);
+}
+
+async function encryptProtectedItemContent(protection, payload, source, newItemPassword = '') {
   const expectedHash = protection.passwordHash || getAppSetting('password_hash');
   const salt = protection.passwordSalt || getAppSetting('password_salt');
   const iterations = protection.passwordHash
@@ -2613,7 +2633,7 @@ function readItemDescription() {
   return { format, direction, source: format === 'markdown' ? source : source.trim() };
 }
 
-function openItemModal(sectionId, editId) {
+function openItemModal(sectionId, editId, noteEditor = null) {
   if (editId) {
     const protection = getItemProtection(editId);
     if (protection && protection.isProtected && isItemLocked(editId, 1)) {
@@ -2623,6 +2643,11 @@ function openItemModal(sectionId, editId) {
   }
 
   const modal      = document.getElementById('itemModal');
+  itemNoteEditor = noteEditor;
+  modal.classList.toggle('editing-note', !!noteEditor);
+  document.getElementById('itemTitleLabel').textContent = noteEditor ? 'Note title (optional)' : 'Title';
+  document.getElementById('itemDescLabel').textContent = noteEditor ? 'Note' : 'Description';
+  document.getElementById('itemNoteContext').hidden = !noteEditor;
   const titleEl    = document.getElementById('itemModalTitle');
   const titleInput = document.getElementById('itemTitle');
   const descInput  = document.getElementById('itemDesc');
@@ -2650,7 +2675,7 @@ function openItemModal(sectionId, editId) {
   document.getElementById('sketchToggleBtn').textContent = '\u270E Add sketch';
 
   // Widen modal for reference boards (to fit canvas)
-  document.getElementById('itemModalInner').classList.toggle('item-modal-wide', isRef);
+  document.getElementById('itemModalInner').classList.toggle('item-modal-wide', isRef && !noteEditor);
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
@@ -2697,7 +2722,7 @@ function openItemModal(sectionId, editId) {
 
       // If item has sketch data, show the canvas with the sketch loaded
       const sketchValue = decrypted ? decrypted.sketchData : row[0].values[0][4];
-      if (isRef && sketchValue) {
+      if (isRef && sketchValue && !noteEditor) {
         sketchActive = true;
         document.getElementById('sketchCanvasSection').style.display = '';
         document.getElementById('sketchToggleWrap').style.display = 'none';
@@ -2739,6 +2764,14 @@ function openItemModal(sectionId, editId) {
     onItemPasswordSourceChange();
   }
 
+  if (noteEditor) {
+    titleEl.textContent = noteEditor.index === null ? 'Add note' : 'Edit note';
+    document.getElementById('itemNoteContext').textContent = 'Attached to: ' + titleInput.value;
+    titleInput.value = noteEditor.note.title;
+    descInput.value = noteEditor.note.description;
+    formatInput.value = noteEditor.note.descriptionFormat;
+    directionInput.value = noteEditor.note.descriptionDirection;
+  }
   onDescriptionFormatChange();
   itemEditorChanged = false;
   modal.classList.add('active');
@@ -2767,8 +2800,18 @@ function removeSketch() {
   document.getElementById('sketchToggleWrap').style.display = '';
 }
 
+function hasItemNoteChanges() {
+  const current = readItemDescription();
+  const saved = itemNoteEditor.note;
+  return document.getElementById('itemTitle').value.trim() !== saved.title ||
+    !current || current.source !== saved.description || current.format !== saved.descriptionFormat ||
+    current.direction !== saved.descriptionDirection;
+}
+
 function markItemEditorChanged() {
-  if (document.getElementById('itemModal').classList.contains('active')) itemEditorChanged = true;
+  if (document.getElementById('itemModal').classList.contains('active')) {
+    itemEditorChanged = itemNoteEditor ? hasItemNoteChanges() : true;
+  }
 }
 
 function closeItemModal(saved = false) {
@@ -2781,6 +2824,7 @@ function closeItemModal(saved = false) {
         !confirm('Close the editor? Any changes not saved will be discarded.')) return;
   }
   itemEditorChanged = false;
+  itemNoteEditor = null;
   descriptionEditorSession++;
   // Clean up canvas if active
   if (sketchActive) {
@@ -2824,6 +2868,7 @@ async function saveItem() {
 }
 
 async function saveItemOnce() {
+  if (itemNoteEditor) return saveItemNoteOnce();
   const title     = document.getElementById('itemTitle').value.trim();
   const description = readItemDescription();
   if (!description) return;
@@ -2835,6 +2880,7 @@ async function saveItemOnce() {
   const editId    = document.getElementById('editItemId').value;
   const sectionId = parseInt(document.getElementById('itemSectionId').value);
   const createdItem = !editId;
+  const notes = editId ? getItemContent(parseInt(editId, 10)).notes : [];
   const sectionType = db.exec('SELECT type FROM sections WHERE id = ?', [sectionId]);
   const isReference = sectionType.length && sectionType[0].values[0][0] === 'reference';
 
@@ -2869,6 +2915,7 @@ async function saveItemOnce() {
     description: desc,
     link,
     sketchData: sketchDataURL,
+    notes,
   });
   if (!encryption) return;
 
@@ -2876,31 +2923,32 @@ async function saveItemOnce() {
   const storedDescription = encryption.isEncrypted ? '' : desc;
   const storedLink = encryption.isEncrypted ? '' : link;
   const storedSketch = encryption.isEncrypted ? null : sketchDataURL;
+  const storedNotes = encryption.isEncrypted ? '[]' : JSON.stringify(notes);
 
   if (editId) {
     db.run(`UPDATE items
             SET title = ?, description = ?, description_format = ?, description_direction = ?, link = ?, recurring = ?, sketch_data = ?,
                 due_date = ?, recurring_days = ?, recurring_time = ?, protected = ?,
                 password_hash = ?, password_salt = ?, password_iterations = ?,
-                encrypted = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ?
+                encrypted = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ?, notes = ?
             WHERE id = ?`,
       [storedTitle, storedDescription, descriptionFormat, descriptionDirection, storedLink, recurring, storedSketch, dueDate, recurringDays, recurringTime,
        protection.isProtected, protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
        encryption.isEncrypted, encryption.encryptedData, encryption.encryptionIv,
-       encryption.encryptionVersion, parseInt(editId)]);
+       encryption.encryptionVersion, storedNotes, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
     db.run(`INSERT INTO items
             (section_id, title, description, description_format, description_direction, link, recurring, sort_order, sketch_data,
              due_date, recurring_days, recurring_time, protected, password_hash, password_salt,
-             password_iterations, encrypted, encrypted_data, encryption_iv, encryption_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             password_iterations, encrypted, encrypted_data, encryption_iv, encryption_version, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [sectionId, storedTitle, storedDescription, descriptionFormat, descriptionDirection, storedLink, recurring,
        maxOrder[0].values[0][0] + 1, storedSketch,
        dueDate, recurringDays, recurringTime, protection.isProtected,
        protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
        encryption.isEncrypted, encryption.encryptedData, encryption.encryptionIv,
-       encryption.encryptionVersion]);
+       encryption.encryptionVersion, storedNotes]);
   }
 
   if (editId) {
@@ -2920,6 +2968,121 @@ async function saveItemOnce() {
   }
 
   toast(editId ? 'Item updated' : 'Item added');
+}
+
+function openItemNoteEditor(event, itemId, index = null) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  if (itemSaveInProgress) { toast('Please wait for the save to finish'); return; }
+  const protection = getItemProtection(itemId);
+  if (!protection) { toast('Item not found'); return; }
+  if ((protection.isProtected && isItemLocked(itemId, 1)) ||
+      (protection.isEncrypted && !decryptedProtectedItems.has(itemId))) {
+    requestItemUnlock(itemId, 'note:' + (index === null ? '' : index));
+    return;
+  }
+  try {
+    const item = getItemContent(itemId);
+    if (index !== null && (!Number.isInteger(index) || index < 0 || index >= item.notes.length)) {
+      throw new Error('This note no longer exists. Reopen the item.');
+    }
+    openItemModal(protection.sectionId, itemId, {
+      itemId, index, originalNotes: JSON.stringify(item.notes),
+      note: index === null ? { title: '', description: '',
+        descriptionFormat: item.descriptionFormat, descriptionDirection: item.descriptionDirection } : item.notes[index],
+    });
+  } catch (error) {
+    console.error('Could not open note editor', error);
+    toast('Could not open note: ' + error.message);
+  }
+}
+
+async function updateItemNotes(itemId, update) {
+  const protection = getItemProtection(itemId);
+  const item = getItemContent(itemId);
+  const notes = validateItemNotes(update(item.notes));
+  const previous = db.exec('SELECT notes, encrypted_data, encryption_iv, encryption_version FROM items WHERE id = ?', [itemId])[0].values[0];
+  let encrypted = null;
+  if (protection.isEncrypted) {
+    encrypted = await encryptProtectedItemContent(protection, {
+      title: item.title, description: item.description, link: item.link, sketchData: item.sketchData, notes,
+    }, protection.passwordHash ? 'custom' : 'global');
+    if (!encrypted) return false;
+    const current = db.exec('SELECT notes, encrypted_data, encryption_iv, encryption_version FROM items WHERE id = ?', [itemId])[0].values[0];
+    if (JSON.stringify(current) !== JSON.stringify(previous)) throw new Error('The item changed while saving. Reopen the note editor.');
+  }
+  const values = encrypted
+    ? ['[]', encrypted.encryptedData, encrypted.encryptionIv, encrypted.encryptionVersion]
+    : [JSON.stringify(notes), ...previous.slice(1)];
+  db.run('UPDATE items SET notes = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ? WHERE id = ?', [...values, itemId]);
+  try {
+    await persist();
+  } catch (error) {
+    db.run('UPDATE items SET notes = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ? WHERE id = ?', [...previous, itemId]);
+    throw error;
+  }
+  if (encrypted) decryptedProtectedItems.set(itemId, { ...decryptedProtectedItems.get(itemId), notes });
+  expandedItems.add(itemId);
+  return true;
+}
+
+async function saveItemNoteOnce(keepOpen = false) {
+  const editor = itemNoteEditor;
+  const description = readItemDescription();
+  if (!description) return;
+  if (!description.source.trim()) {
+    if (!keepOpen) { toast('Note text is required'); document.getElementById('itemDesc').focus(); }
+    return false;
+  }
+  const note = {
+    title: document.getElementById('itemTitle').value.trim(), description: description.source,
+    descriptionFormat: description.format, descriptionDirection: description.direction,
+  };
+  let updatedNotes;
+  let savedIndex = editor.index;
+  const saved = await updateItemNotes(editor.itemId, notes => {
+    if (JSON.stringify(notes) !== editor.originalNotes) throw new Error('Notes changed while editing. Reopen this note.');
+    if (editor.index === null) { savedIndex = notes.length; notes.push(note); }
+    else notes[editor.index] = note;
+    updatedNotes = JSON.stringify(notes);
+    return notes;
+  });
+  if (!saved) return false;
+  const added = editor.index === null;
+  editor.index = savedIndex;
+  editor.originalNotes = updatedNotes;
+  editor.note = note;
+  itemEditorChanged = hasItemNoteChanges();
+  if (keepOpen || itemEditorChanged) {
+    document.getElementById('itemModalTitle').textContent = 'Edit note';
+    if (itemEditorChanged) scheduleAutoSave();
+    return true;
+  }
+  closeItemModal(true);
+  toast(added ? 'Note added' : 'Note updated');
+  return true;
+}
+
+async function deleteItemNote(event, itemId, index) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  if (itemSaveInProgress) { toast('Please wait for the save to finish'); return; }
+  if (!confirm('Delete this note? The item and other notes will stay.')) return;
+  itemSaveInProgress = true;
+  try {
+    const saved = await updateItemNotes(itemId, notes => {
+      if (!Number.isInteger(index) || index < 0 || index >= notes.length) throw new Error('This note no longer exists');
+      notes.splice(index, 1);
+      return notes;
+    });
+    if (!saved) return;
+    renderSidebar();
+    renderMain();
+    toast('Note deleted');
+  } catch (error) {
+    console.error('Could not delete note', error);
+    toast('Could not delete note: ' + error.message);
+  } finally {
+    itemSaveInProgress = false;
+  }
 }
 
 function deleteItem(id) {
@@ -2942,19 +3105,18 @@ function copyItem(event, id) {
     requestItemUnlock(id, 'copy');
     return;
   }
-  if (protection && protection.isEncrypted) {
-    const payload = decryptedProtectedItems.get(id);
-    if (!payload) { requestItemUnlock(id, 'copy'); return; }
-    copyItemText([payload.title, payload.description, payload.link].filter(Boolean).join('\n').trim());
+  if (protection && protection.isEncrypted && !decryptedProtectedItems.has(id)) {
+    requestItemUnlock(id, 'copy');
     return;
   }
-
-  const res = db.exec('SELECT title, description, link FROM items WHERE id = ?', [id]);
-  if (!res.length) { toast('Nothing to copy'); return; }
-
-  const [title, desc, link] = res[0].values[0];
-  const text = [title, desc, link].filter(Boolean).join('\n').trim();
-  copyItemText(text);
+  try {
+    const item = getItemContent(id);
+    const notes = item.notes.map(note => [note.title, note.description].filter(Boolean).join('\n'));
+    copyItemText([item.title, item.description, ...notes, item.link].filter(Boolean).join('\n').trim());
+  } catch (error) {
+    console.error('Could not copy item', error);
+    toast('Could not copy item: ' + error.message);
+  }
 }
 
 function copyItemText(text) {
@@ -3349,6 +3511,7 @@ document.addEventListener('change', (e) => {
 let autoSaveTimer = null;
 
 function silentSaveItem() {
+  if (itemNoteEditor) return false;
   // Save current item without closing modal or re-rendering
   const title = document.getElementById('itemTitle').value.trim();
   if (!title) return false;
@@ -3401,13 +3564,33 @@ function scheduleAutoSave() {
   if (localStorage.getItem('dashora_autosave') !== 'true') return;
   if (!document.getElementById('itemModal').classList.contains('active')) return;
   clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(() => {
-    if (silentSaveItem()) toast('Auto-saved');
+  autoSaveTimer = setTimeout(async () => {
+    if (!itemNoteEditor) {
+      if (silentSaveItem()) toast('Auto-saved');
+      return;
+    }
+    const protection = getItemProtection(itemNoteEditor.itemId);
+    if (!protection || protection.isProtected) return;
+    if (itemSaveInProgress || descriptionImagePastePending) { scheduleAutoSave(); return; }
+    itemSaveInProgress = true;
+    try {
+      if (await saveItemNoteOnce(true)) toast('Auto-saved');
+    } catch (error) {
+      console.error('Could not auto-save note', error);
+      toast('Could not auto-save note: ' + error.message);
+    } finally {
+      itemSaveInProgress = false;
+    }
   }, 1500);
 }
 
 // Save on page exit if modal is open and auto-save is on
-window.addEventListener('beforeunload', () => {
+window.addEventListener('beforeunload', event => {
+  if (itemNoteEditor && (itemEditorChanged || itemSaveInProgress || descriptionImagePastePending)) {
+    event.preventDefault();
+    event.returnValue = '';
+    return;
+  }
   if (localStorage.getItem('dashora_autosave') !== 'true') return;
   if (!document.getElementById('itemModal').classList.contains('active')) return;
   silentSaveItem();

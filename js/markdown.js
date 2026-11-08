@@ -310,6 +310,68 @@ function renderDescription(source, format = 'plain', direction = 'auto') {
   return `<div class="item-detail-desc${markdownClass}" dir="${validDirection}">${renderDescriptionContent(source, format, direction)}</div>`;
 }
 
+function validateItemNotes(notes = []) {
+  if (!Array.isArray(notes)) throw new Error('Notes must be a list');
+  return notes.map(note => {
+    if (!note || typeof note !== 'object' || Array.isArray(note) ||
+        typeof note.title !== 'string' || typeof note.description !== 'string' ||
+        !note.description.trim()) {
+      throw new Error('Each note needs a text body and an optional text title');
+    }
+    if (note.descriptionFormat !== 'plain' && note.descriptionFormat !== 'markdown') {
+      throw new Error('Unsupported note format');
+    }
+    if (!isDescriptionDirection(note.descriptionDirection)) {
+      throw new Error('Unsupported note direction');
+    }
+    return {
+      title: note.title,
+      description: note.description,
+      descriptionFormat: note.descriptionFormat,
+      descriptionDirection: note.descriptionDirection,
+    };
+  });
+}
+
+function parseItemNotes(value = '[]') {
+  if (typeof value !== 'string') throw new Error('Invalid stored notes');
+  return validateItemNotes(JSON.parse(value));
+}
+
+function itemNotesMatch(notes, term) {
+  return notes.some(note => note.title.toLowerCase().includes(term) ||
+    note.description.toLowerCase().includes(term));
+}
+
+function renderItemNotes(notes = [], itemId = null) {
+  let entries;
+  try {
+    entries = validateItemNotes(notes);
+  } catch (error) {
+    console.error('Could not display notes', error);
+    return `<div class="description-render-error" role="alert">Could not display notes: ${esc(error.message)}</div>`;
+  }
+  if (!entries.length && itemId === null) return '';
+  return `<section class="item-notes" aria-label="Notes">
+    ${entries.length ? '<h3 class="item-notes-heading">Notes</h3>' : ''}
+    ${entries.map((note, index) => `
+      <details class="item-note" open>
+        <summary>
+          <span class="item-note-title" dir="auto">${esc(note.title || 'Note ' + (index + 1))}</span>
+          ${itemId === null ? '' : `<span class="item-note-actions">
+            <button type="button" class="btn btn-ghost btn-sm" aria-label="Edit note ${index + 1}"
+                    onclick="openItemNoteEditor(event, ${itemId}, ${index})">Edit</button>
+            <button type="button" class="btn btn-ghost btn-sm note-delete" aria-label="Delete note ${index + 1}"
+                    onclick="deleteItemNote(event, ${itemId}, ${index})">Delete</button>
+          </span>`}
+        </summary>
+        ${renderDescription(note.description, note.descriptionFormat, note.descriptionDirection)}
+      </details>`).join('')}
+    ${itemId === null ? '' : `<button type="button" class="btn btn-ghost btn-sm item-note-add"
+      onclick="openItemNoteEditor(event, ${itemId})">+ Add note</button>`}
+  </section>`;
+}
+
 function validateDescriptionMetadata(items) {
   const result = items[0];
   if (!result || !result.columns || !result.values) return;
@@ -321,4 +383,6 @@ function validateDescriptionMetadata(items) {
   if (directionIndex !== -1 && result.values.some(row => !isDescriptionDirection(row[directionIndex]))) {
     throw new Error('Unsupported description direction in imported items');
   }
+  const notesIndex = result.columns.indexOf('notes');
+  if (notesIndex !== -1) result.values.forEach(row => parseItemNotes(row[notesIndex]));
 }

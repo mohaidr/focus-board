@@ -14,6 +14,7 @@ function setup() {
     escAttr: value => value,
     renderDescription: text => `<div class="item-detail-desc">${text}</div>`,
     renderFollowups: () => '',
+    renderItemNotes: () => '',
     RECURRENCE_LABELS: {},
     dragItemId: null,
   });

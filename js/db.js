@@ -64,6 +64,7 @@ function createTables() {
       created_at  TEXT DEFAULT (datetime('now')),
       description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'markdown')),
       description_direction TEXT NOT NULL DEFAULT 'auto' CHECK (description_direction IN ('auto', 'ltr', 'rtl')),
+      notes TEXT NOT NULL DEFAULT '[]',
       FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
     )
   `);
@@ -74,6 +75,9 @@ function createTables() {
   }
   if (!itemColumns.includes('description_direction')) {
     db.run("ALTER TABLE items ADD COLUMN description_direction TEXT NOT NULL DEFAULT 'auto' CHECK (description_direction IN ('auto', 'ltr', 'rtl'))");
+  }
+  if (!itemColumns.includes('notes')) {
+    db.run("ALTER TABLE items ADD COLUMN notes TEXT NOT NULL DEFAULT '[]'");
   }
 
   // Migration: add recurring column if missing

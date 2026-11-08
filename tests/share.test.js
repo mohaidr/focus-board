@@ -27,6 +27,7 @@ function fixture() {
     description: '    indented code\n\n## Heading\n\n**bold**  \nnext line\n',
     descriptionFormat: 'markdown',
     descriptionDirection: 'auto',
+    notes: [],
     link: 'https://example.com/docs?q=a%20b#part',
     boardType: 'task',
     status: 1,
