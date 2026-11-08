@@ -72,7 +72,7 @@ for (const value of ['dark', 'light']) {
   test(value + ' preference is applied during startup', () => {
     const { context, metadata, calls } = setup({ stored: value });
     assert.equal(context.getAppTheme(), value);
-    assert.equal(metadata['theme-color'].attributes.content, value === 'light' ? '#ebe7df' : '#1a2030');
+    assert.equal(metadata['theme-color'].attributes.content, value === 'light' ? '#f3f1ed' : '#1a2030');
     assert.equal(metadata['color-scheme'].attributes.content, value);
     assert.equal(metadata['apple-mobile-web-app-status-bar-style'].attributes.content,
       value === 'light' ? 'default' : 'black-translucent');
@@ -220,7 +220,7 @@ test('theme bootstrap and metadata precede styles, and the bootstrap is cached o
     assert.ok(position >= 0 && position < script);
   }
   assert.match(worker, /'\.\/js\/theme\.js'/);
-  assert.match(worker, /const CACHE_VERSION = 39;/);
+  assert.match(worker, /const CACHE_VERSION = 42;/);
 });
 
 const darkBlock = css.match(/:root\s*\{([\s\S]*?)\}/);
@@ -263,12 +263,18 @@ function blend(foreground, opacity, background) {
   return foreground.map((channel, index) => channel * opacity + background[index] * (1 - opacity));
 }
 
-test('light theme uses lower-luminance warm surfaces rather than glaring white panels', () => {
-  for (const token of ['--bg', '--surface', '--card']) {
+test('light theme uses the requested background and retains softer card surfaces', () => {
+  assert.equal(value('--bg'), '#f3f1ed');
+  for (const token of ['--surface', '--card']) {
     const brightness = luminance(rgb(value(token)));
     assert.ok(brightness <= 0.85, token + ' is too bright: ' + brightness.toFixed(3));
     assert.notEqual(value(token), '#ffffff');
   }
+});
+
+test('the light sidebar matches the page background without changing dark mode', () => {
+  assert.match(css, /:root\[data-theme="light"\] \.sidebar\s*\{\s*background:\s*var\(--bg\);/);
+  assert.match(css, /^\.sidebar\s*\{[^}]*background:\s*var\(--surface\);/m);
 });
 
 test('flex inputs can shrink inside narrow cards without pushing their buttons outside', () => {
@@ -277,8 +283,20 @@ test('flex inputs can shrink inside narrow cards without pushing their buttons o
     assert.match(block, /min-width:\s*0;/, selector);
   }
   assert.match(css, /\.followup-add \.btn\s*\{\s*flex-shrink:\s*0;/);
-  assert.match(css, /\.item-meta-row\s*\{[^}]*flex-wrap:\s*wrap;/);
-  assert.match(css, /\.item-quick-actions\s*\{[^}]*min-width:\s*0;/);
+  assert.match(css, /\.item:not\(\.ref-item\) \.item-meta-row\s*\{[^}]*flex-wrap:\s*wrap;/);
+  assert.match(css, /\.item:not\(\.ref-item\) \.item-quick-actions\s*\{[^}]*min-width:\s*0;/);
+});
+
+test('reference headers keep their icon, title and controls aligned without task-card wrapping', () => {
+  const metadata = css.match(/^\.item-meta-row\s*\{([^}]+)\}/m)[1];
+  const indicators = css.match(/^\.item-indicators\s*\{([^}]+)\}/m)[1];
+  const actions = css.match(/^\.item-quick-actions\s*\{([^}]+)\}/m)[1];
+  assert.doesNotMatch(metadata, /flex-wrap:\s*wrap/);
+  assert.doesNotMatch(indicators, /flex:\s*1 1 100%/);
+  assert.doesNotMatch(actions, /flex-wrap:\s*wrap/);
+  assert.match(css, /\.ref-item \.item-row\s*\{\s*align-items:\s*center;/);
+  assert.match(css, /\.ref-item \.item-meta-row\s*\{[^}]*flex-wrap:\s*nowrap;/);
+  assert.match(css, /\.ref-item \.item-main\s*\{[^}]*flex-direction:\s*column;/);
 });
 
 test('Arabic typography is shared across RTL fields, mixed text and code fallbacks', () => {

@@ -1,6 +1,6 @@
 const APP_THEMES = {
   dark: { background: '#1a2030', statusBar: 'black-translucent' },
-  light: { background: '#ebe7df', statusBar: 'default' },
+  light: { background: '#f3f1ed', statusBar: 'default' },
 };
 
 function validateAppTheme(theme) {
