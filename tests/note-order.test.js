@@ -83,6 +83,7 @@ function setup({ encrypted = false, failPersist = false, cancelEncryption = fals
       },
     },
     persist: async () => { if (failPersist) throw new Error('Storage unavailable'); calls.push('persist'); },
+    requestChangeBackup: reason => calls.push({ backup: reason }),
     renderMain: () => { cards = notes().map((_, index) => makeCard(7, index)); calls.push('render'); },
     toast: text => calls.push({ toast: text }),
   });
@@ -144,6 +145,7 @@ test('reordering persists exact note fields, collapse state and focus without ch
   assert.equal(cards()[2].focused, true);
   assert.ok(calls.includes('persist'));
   assert.ok(calls.some(call => call.toast === 'Note order saved'));
+  assert.ok(calls.some(call => call.backup === 'notes-reordered'));
   assert.ok(calls.filter(call => call.sql).every(call => !call.sql.includes('title =') && !call.sql.includes('status =')));
 });
 

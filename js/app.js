@@ -49,6 +49,9 @@ let descriptionImagePastePending = false;
 let itemEditorChanged = false;
 let itemNoteEditor = null;
 let noteDragState = null;
+let backupWriteQueue = Promise.resolve();
+let pendingBackupWrites = 0;
+let itemEditorChangeRevision = 0;
 
 
 /* ================================================================
@@ -634,12 +637,12 @@ async function clearStoredBackupFolderHandle() {
   }
 }
 
-async function ensureBackupFolderPermission(mode = 'readwrite') {
-  if (!backupFolderHandle) return false;
+async function ensureBackupFolderPermission(mode = 'readwrite', folder = backupFolderHandle) {
+  if (!folder) return false;
   const opts = { mode };
-  let permission = await backupFolderHandle.queryPermission(opts);
+  let permission = await folder.queryPermission(opts);
   if (permission !== 'granted') {
-    permission = await backupFolderHandle.requestPermission(opts);
+    permission = await folder.requestPermission(opts);
   }
   return permission === 'granted';
 }
@@ -664,20 +667,20 @@ async function readBackupFile(fileHandle) {
   return normalizeBackupRecord(parsed, fileHandle.name);
 }
 
-async function refreshBackupFiles() {
-  if (!backupFolderHandle) {
+async function refreshBackupFiles(folder = backupFolderHandle) {
+  if (!folder) {
     backupFilesCache = [];
     return backupFilesCache;
   }
 
-  const hasPermission = await ensureBackupFolderPermission('readwrite');
+  const hasPermission = await ensureBackupFolderPermission('readwrite', folder);
   if (!hasPermission) {
     backupFilesCache = [];
     return backupFilesCache;
   }
 
   const backups = [];
-  for await (const [name, handle] of backupFolderHandle.entries()) {
+  for await (const [name, handle] of folder.entries()) {
     if (handle.kind !== 'file') continue;
     if (!name.startsWith(BACKUP_FILE_PREFIX) || !name.endsWith('.json')) continue;
     try {
@@ -689,23 +692,23 @@ async function refreshBackupFiles() {
   }
 
   backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  backupFilesCache = backups;
-  return backupFilesCache;
+  if (folder === backupFolderHandle) backupFilesCache = backups;
+  return backups;
 }
 
-async function pruneBackupFiles() {
-  if (!backupFolderHandle) return;
-  const backups = await refreshBackupFiles();
+async function pruneBackupFiles(folder = backupFolderHandle) {
+  if (!folder || folder !== backupFolderHandle) return;
+  const backups = await refreshBackupFiles(folder);
   const regularBackups = backups.filter(b => !b.protected);
   const extra = regularBackups.slice(BACKUP_RETENTION);
   for (const b of extra) {
     try {
-      await backupFolderHandle.removeEntry(b.fileName);
+      await folder.removeEntry(b.fileName);
     } catch (e) {
       // Ignore file-level delete failures and continue pruning other files.
     }
   }
-  await refreshBackupFiles();
+  await refreshBackupFiles(folder);
 }
 
 function buildBackupFileName(reason, createdAt, isProtected = false) {
@@ -720,7 +723,7 @@ function buildBackupFileName(reason, createdAt, isProtected = false) {
   const ms = String(d.getMilliseconds()).padStart(3, '0');
   const stamp = `${y}-${m}-${day}_${hh}-${mm}-${ss}-${ms}`;
   const suffix = isProtected ? '-protected' : '';
-  return `${BACKUP_FILE_PREFIX}${stamp}-${safeReason}${suffix}.json`;
+  return `${BACKUP_FILE_PREFIX}${stamp}-${safeReason}-${crypto.randomUUID()}${suffix}.json`;
 }
 
 async function initBackupSystem() {
@@ -808,17 +811,42 @@ async function createBackup(reason, options = {}) {
     return false;
   }
 
-  const hasPermission = await ensureBackupFolderPermission('readwrite');
-  if (!hasPermission) {
-    if (!options.silent) toast('Backup folder permission denied');
+  let snapshot;
+  try {
+    snapshot = snapshotCurrentData();
+  } catch (error) {
+    console.error('Could not capture backup data', error);
+    if (!options.silent) toast('Backup failed: could not read current data');
     return false;
   }
+  const folder = backupFolderHandle;
+  const createdAt = options.createdAt || new Date().toISOString();
+  pendingBackupWrites++;
+  const task = backupWriteQueue.then(async () => {
+    try {
+      if (folder !== backupFolderHandle) throw new Error('The backup folder was changed or disconnected');
+      return await writeBackup(reason, options, snapshot, folder, createdAt);
+    } catch (error) {
+      console.error('Could not create backup', error);
+      if (!options.silent) toast('Backup failed: ' + error.message);
+      return false;
+    }
+  });
+  backupWriteQueue = task;
+  try {
+    return await task;
+  } finally {
+    pendingBackupWrites--;
+  }
+}
 
+async function writeBackup(reason, options, snapshot, folder, createdAt) {
+  if (!await ensureBackupFolderPermission('readwrite', folder)) throw new Error('Backup folder permission denied');
   const silent = options.silent === true;
   const force = options.force === true;
-  const createdAt = options.createdAt || new Date().toISOString();
   const key = dayKey(new Date(createdAt));
-  const backups = await refreshBackupFiles();
+  const backups = await refreshBackupFiles(folder);
+  if (folder !== backupFolderHandle) throw new Error('The backup folder was changed or disconnected');
 
   if (!force && reason === 'daily' && backups.some(b => b && b.dayKey === key)) {
     return false;
@@ -829,20 +857,24 @@ async function createBackup(reason, options = {}) {
     createdAt,
     dayKey: key,
     protected: false,
-    snapshot: snapshotCurrentData(),
+    snapshot,
   };
 
+  const fileName = buildBackupFileName(record.reason, record.createdAt, record.protected === true);
+  const fileHandle = await folder.getFileHandle(fileName, { create: true });
+  let writable;
   try {
-    const fileName = buildBackupFileName(record.reason, record.createdAt, record.protected === true);
-    const fileHandle = await backupFolderHandle.getFileHandle(fileName, { create: true });
-    const writable = await fileHandle.createWritable();
+    writable = await fileHandle.createWritable();
     await writable.write(JSON.stringify(record, null, 2));
     await writable.close();
-    await pruneBackupFiles();
-  } catch (e) {
-    if (!silent) toast('Backup failed: could not write file');
-    return false;
+  } catch (error) {
+    if (writable) {
+      try { await writable.abort(); } catch (cleanupError) { console.error('Could not abort failed backup write', cleanupError); }
+    }
+    try { await folder.removeEntry(fileName); } catch (cleanupError) { console.error('Could not remove incomplete backup', cleanupError); }
+    throw error;
   }
+  await pruneBackupFiles(folder);
 
   if (!silent) {
     toast('Backup file created');
@@ -851,6 +883,31 @@ async function createBackup(reason, options = {}) {
   renderSidebar();
   if (activeView === 'backup') renderMain();
   return true;
+}
+
+function requestChangeBackup(reason) {
+  if (!backupFolderHandle) return Promise.resolve(false);
+  return createBackup(reason, { silent: true }).then(created => {
+    if (!created) {
+      console.error('Automatic backup was not created:', reason);
+      // Avoid replacing this warning with the save notification in the same turn.
+      setTimeout(() => toast('Saved locally, but automatic backup failed. Check the backup folder and permissions.'), 0);
+    }
+    return created;
+  }).catch(error => {
+    console.error('Automatic backup failed:', reason, error);
+    setTimeout(() => toast('Saved locally, but automatic backup failed: ' + error.message), 0);
+    return false;
+  });
+}
+
+function getBackupReasonLabel(reason) {
+  return ({
+    daily: 'Daily auto', manual: 'Manual', 'pre-import': 'Before import',
+    'new-board': 'New board', 'new-item': 'New item', 'new-followup': 'New follow-up',
+    'item-updated': 'Item updated', 'note-added': 'Note added', 'note-updated': 'Note updated',
+    'note-deleted': 'Note deleted', 'notes-reordered': 'Notes reordered',
+  })[reason] || 'Manual';
 }
 
 async function ensureDailyBackup() {
@@ -986,15 +1043,7 @@ function renderBackupTab() {
     const itemCount = b.snapshot && b.snapshot.items && b.snapshot.items[0] && b.snapshot.items[0].values
       ? b.snapshot.items[0].values.length
       : 0;
-    const reasonLabel = b.reason === 'daily'
-      ? 'Daily auto'
-      : b.reason === 'pre-import'
-      ? 'Before import'
-      : b.reason === 'new-item'
-      ? 'New item'
-      : b.reason === 'new-board'
-      ? 'New board'
-      : 'Manual';
+    const reasonLabel = getBackupReasonLabel(b.reason);
 
     return `
       <div class="backup-card">
@@ -2658,6 +2707,7 @@ function openItemModal(sectionId, editId, noteEditor = null) {
 
   const modal      = document.getElementById('itemModal');
   itemNoteEditor = noteEditor;
+  itemEditorChangeRevision++;
   modal.classList.toggle('editing-note', !!noteEditor);
   document.getElementById('itemTitleLabel').textContent = noteEditor ? 'Note title (optional)' : 'Title';
   document.getElementById('itemDescLabel').textContent = noteEditor ? 'Note' : 'Description';
@@ -2823,6 +2873,7 @@ function hasItemNoteChanges() {
 
 function markItemEditorChanged() {
   if (document.getElementById('itemModal').classList.contains('active')) {
+    itemEditorChangeRevision++;
     itemEditorChanged = itemNoteEditor ? hasItemNoteChanges() : true;
   }
 }
@@ -2976,11 +3027,8 @@ async function saveItemOnce() {
   renderMain();
   checkDueDateNotifications();
 
-  if (createdItem) {
-    createBackup('new-item', { silent: true }).catch(() => {});
-  }
-
   toast(editId ? 'Item updated' : 'Item added');
+  requestChangeBackup(createdItem ? 'new-item' : 'item-updated');
 }
 
 function openItemNoteEditor(event, itemId, index = null) {
@@ -3009,7 +3057,7 @@ function openItemNoteEditor(event, itemId, index = null) {
   }
 }
 
-async function updateItemNotes(itemId, update) {
+async function updateItemNotes(itemId, update, backupReason = 'note-updated') {
   const protection = getItemProtection(itemId);
   const item = getItemContent(itemId);
   const notes = validateItemNotes(update(item.notes));
@@ -3035,6 +3083,7 @@ async function updateItemNotes(itemId, update) {
   }
   if (encrypted) decryptedProtectedItems.set(itemId, { ...decryptedProtectedItems.get(itemId), notes });
   expandedItems.add(itemId);
+  requestChangeBackup(backupReason);
   return true;
 }
 
@@ -3050,6 +3099,10 @@ async function saveItemNoteOnce(keepOpen = false) {
     title: document.getElementById('itemTitle').value.trim(), description: description.source,
     descriptionFormat: description.format, descriptionDirection: description.direction,
   };
+  if (keepOpen && editor.index !== null && !hasItemNoteChanges()) {
+    itemEditorChanged = false;
+    return false;
+  }
   let updatedNotes;
   let savedIndex = editor.index;
   const saved = await updateItemNotes(editor.itemId, notes => {
@@ -3058,7 +3111,7 @@ async function saveItemNoteOnce(keepOpen = false) {
     else notes[editor.index] = note;
     updatedNotes = JSON.stringify(notes);
     return notes;
-  });
+  }, editor.index === null ? 'note-added' : 'note-updated');
   if (!saved) return false;
   const added = editor.index === null;
   editor.index = savedIndex;
@@ -3085,7 +3138,7 @@ async function deleteItemNote(event, itemId, index) {
       if (!Number.isInteger(index) || index < 0 || index >= notes.length) throw new Error('This note no longer exists');
       notes.splice(index, 1);
       return notes;
-    });
+    }, 'note-deleted');
     if (!saved) return;
     renderSidebar();
     renderMain();
@@ -3289,7 +3342,7 @@ async function moveItemNote(itemId, from, to, originalNotes = null) {
       const [note] = entries.splice(from, 1);
       entries.splice(to, 0, note);
       return entries;
-    });
+    }, 'notes-reordered');
     if (!saved) return false;
     if (openStates.length === notes.length) {
       const [open] = openStates.splice(from, 1);
@@ -3738,8 +3791,8 @@ document.addEventListener('change', (e) => {
 // Auto-save: debounced save when editing item modal fields
 let autoSaveTimer = null;
 
-function silentSaveItem() {
-  if (itemNoteEditor) return false;
+async function silentSaveItem() {
+  if (itemNoteEditor || itemSaveInProgress || descriptionImagePastePending) return false;
   // Save current item without closing modal or re-rendering
   const title = document.getElementById('itemTitle').value.trim();
   if (!title) return false;
@@ -3770,22 +3823,51 @@ function silentSaveItem() {
   }
 
   let editId = document.getElementById('editItemId').value;
-
+  const createdItem = !editId;
+  const values = [title, desc, descriptionFormat, descriptionDirection, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime];
+  const updateSql = 'UPDATE items SET title = ?, description = ?, description_format = ?, description_direction = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?';
+  let previous = null;
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, description_format = ?, description_direction = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
-      [title, desc, descriptionFormat, descriptionDirection, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
-  } else {
-    // Create the item for the first time
-    const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, description_format, description_direction, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, descriptionFormat, descriptionDirection, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
-    const newId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
-    document.getElementById('editItemId').value = newId;
+    const result = db.exec(`SELECT title, description, description_format, description_direction, link, recurring,
+      sketch_data, due_date, recurring_days, recurring_time, protected, encrypted FROM items WHERE id = ?`, [parseInt(editId, 10)]);
+    if (!result.length) throw new Error('The item no longer exists');
+    previous = result[0].values[0];
+    if (previous[10] === 1 || previous[11] === 1) return false;
+    if (JSON.stringify(previous.slice(0, 10)) === JSON.stringify(values)) {
+      itemEditorChanged = false;
+      return false;
+    }
   }
-
-  persist();
-  renderSidebar();
-  return true;
+  const revision = itemEditorChangeRevision;
+  itemSaveInProgress = true;
+  try {
+    if (editId) {
+      db.run(updateSql, [...values, parseInt(editId, 10)]);
+    } else {
+      const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
+      db.run('INSERT INTO items (section_id, title, description, description_format, description_direction, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [sectionId, title, desc, descriptionFormat, descriptionDirection, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
+      editId = String(db.exec('SELECT last_insert_rowid()')[0].values[0][0]);
+      document.getElementById('editItemId').value = editId;
+    }
+    try {
+      await persist();
+    } catch (error) {
+      if (createdItem) {
+        db.run('DELETE FROM items WHERE id = ?', [parseInt(editId, 10)]);
+        document.getElementById('editItemId').value = '';
+      } else {
+        db.run(updateSql, [...previous.slice(0, 10), parseInt(editId, 10)]);
+      }
+      throw error;
+    }
+    if (revision === itemEditorChangeRevision) itemEditorChanged = false;
+    requestChangeBackup(createdItem ? 'new-item' : 'item-updated');
+    renderSidebar();
+    return true;
+  } finally {
+    itemSaveInProgress = false;
+  }
 }
 
 function scheduleAutoSave() {
@@ -3793,13 +3875,18 @@ function scheduleAutoSave() {
   if (!document.getElementById('itemModal').classList.contains('active')) return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(async () => {
+    if (itemSaveInProgress || descriptionImagePastePending) { scheduleAutoSave(); return; }
     if (!itemNoteEditor) {
-      if (silentSaveItem()) toast('Auto-saved');
+      try {
+        if (await silentSaveItem()) toast('Auto-saved');
+      } catch (error) {
+        console.error('Could not auto-save item', error);
+        toast('Could not auto-save item: ' + error.message);
+      }
       return;
     }
     const protection = getItemProtection(itemNoteEditor.itemId);
     if (!protection || protection.isProtected) return;
-    if (itemSaveInProgress || descriptionImagePastePending) { scheduleAutoSave(); return; }
     itemSaveInProgress = true;
     try {
       if (await saveItemNoteOnce(true)) toast('Auto-saved');
@@ -3814,14 +3901,22 @@ function scheduleAutoSave() {
 
 // Save on page exit if modal is open and auto-save is on
 window.addEventListener('beforeunload', event => {
-  if (itemNoteEditor && (itemEditorChanged || itemSaveInProgress || descriptionImagePastePending)) {
+  if (pendingBackupWrites || itemSaveInProgress ||
+      (itemNoteEditor && (itemEditorChanged || descriptionImagePastePending))) {
     event.preventDefault();
     event.returnValue = '';
     return;
   }
   if (localStorage.getItem('dashora_autosave') !== 'true') return;
   if (!document.getElementById('itemModal').classList.contains('active')) return;
-  silentSaveItem();
+  if (itemEditorChanged) {
+    event.preventDefault();
+    event.returnValue = '';
+    silentSaveItem().catch(error => {
+      console.error('Could not auto-save before leaving', error);
+      toast('Could not save before leaving: ' + error.message);
+    });
+  }
 });
 
 // Attach auto-save listeners to item modal fields

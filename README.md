@@ -228,14 +228,22 @@ Encrypted saves confirm the selected global or existing item password at save ti
 ### Backup, Restore, and Recovery
 
 - Manual backup anytime
-- Automatic backup on new board creation, new item creation, and daily cycle
+- Automatic backup after item updates and note additions, edits, deletions, and reordering, as well as new board/item/follow-up creation and daily checks
+- Auto-save changes also trigger backups after successful browser storage writes; unchanged auto-saves do not create duplicate snapshots
+- Backup writes are queued, with each snapshot captured when requested so later edits do not replace an earlier queued snapshot
 - Backup files saved to a user-selected folder
-- File names include date/time and reason
+- File names include date/time, reason, and a unique identifier
 - Restore or delete backups from the Backup tab
 - Protect important backups from auto-pruning
 - Protection state stored both in file content and file name
 - Retention policy keeps the latest 3 regular backups
 - Protected backups are excluded from that limit
+
+Automatic folder backups require a connected, writable backup folder. A backup
+failure does not undo a successful browser save: the app logs the failure and
+shows a separate warning. Leaving while a backup write is pending also warns.
+Notes, their writing/formatting settings, and their saved order are included;
+encrypted content stays encrypted in backup snapshots.
 
 ### Import and Export
 
@@ -359,6 +367,12 @@ Run multiple-note, legacy migration, sharing, encryption, and auto-save tests:
 
 ```powershell
 node --test tests\notes.test.js tests\note-order.test.js
+```
+
+Run mutation backup, snapshot queuing, retention, and failure-recovery tests:
+
+```powershell
+node --test tests\backup.test.js
 ```
 
 Run theme preference, settings, startup, and light-palette contrast tests:

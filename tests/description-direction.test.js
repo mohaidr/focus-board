@@ -134,6 +134,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
       },
     },
     sketchActive: false, sketchCtx: null,
+    itemSaveInProgress: false, descriptionImagePastePending: false, itemEditorChangeRevision: 0, itemEditorChanged: false,
     itemNoteEditor: null, getItemContent: () => ({ notes }),
     resolveItemProtection: async () => ({ isProtected: encrypted ? 1 : 0,
       passwordHash: null, passwordSalt: null, passwordIterations: null }),
@@ -148,6 +149,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
     closeItemModal: saved => calls.push({ saved }),
     renderSidebar: () => {}, renderMain: () => {}, checkDueDateNotifications: () => {},
     createBackup: async () => {},
+    requestChangeBackup: reason => calls.push({ backup: reason }),
     toast: message => calls.push({ toast: message }),
     descriptionEditorSession: 0,
     renderDescriptionContent: (...args) => { calls.push({ render: args }); return 'preview'; },
@@ -160,7 +162,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
     app.indexOf('function onDescriptionPaste(')), context);
   vm.runInContext(app.slice(app.indexOf('async function saveItemOnce('),
     app.indexOf('function deleteItem(')), context);
-  vm.runInContext(app.slice(app.indexOf('function silentSaveItem('),
+  vm.runInContext(app.slice(app.indexOf('async function silentSaveItem('),
     app.indexOf('function scheduleAutoSave(')), context);
   return { context, calls, elements };
 }
@@ -219,15 +221,16 @@ for (const edit of [true, false]) {
       assert.ok(calls.some(call => call.saved === true));
     });
 
-    test('auto-save preserves Markdown and direction: edit=' + edit + ', direction=' + direction, () => {
+    test('auto-save preserves Markdown and direction: edit=' + edit + ', direction=' + direction, async () => {
       const { context, calls } = setup({ edit, direction });
-      assert.equal(context.silentSaveItem(), true);
+      assert.equal(await context.silentSaveItem(), true);
       const statement = calls.find(call => call.sql);
       const offset = edit ? 0 : 1;
       assert.equal(statement.params[offset + 1], original);
       assert.equal(statement.params[offset + 2], 'markdown');
       assert.equal(statement.params[offset + 3], direction);
       assert.ok(calls.includes('persist'));
+      assert.ok(calls.some(call => call.backup === (edit ? 'item-updated' : 'new-item')));
     });
   }
 }

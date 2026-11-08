@@ -218,8 +218,9 @@ function mutations({ encrypted = false, failPersist = false, cancelEncryption = 
       },
     },
     persist: async () => { if (failPersist) throw new Error('Storage unavailable'); calls.push('persist'); },
+    requestChangeBackup: reason => calls.push({ backup: reason }),
     decryptedProtectedItems: decrypted, expandedItems: new Set(),
-    itemSaveInProgress: false, itemEditorChanged: true,
+    itemSaveInProgress: false, itemEditorChanged: true, itemEditorChangeRevision: 0,
     itemNoteEditor: { itemId: 7, index: null, originalNotes: JSON.stringify([plain]) },
     readItemDescription: () => ({ source: elements.itemDesc.value, format: 'markdown', direction: 'rtl' }),
     closeItemModal: () => calls.push('close'),
@@ -239,6 +240,7 @@ test('saving a note leaves parent fields unchanged and appends exactly once', as
   assert.deepEqual(JSON.parse(fields()[0]), [plain, note]);
   assert.equal(calls.filter(call => call.sql).length, 1);
   assert.ok(calls.includes('close'));
+  assert.ok(calls.some(call => call.backup === 'note-added'));
   assert.ok(context.expandedItems.has(7));
 });
 
@@ -254,6 +256,7 @@ test('note auto-save keeps the editor open and subsequent saves update rather th
   assert.equal(await context.saveItemNoteOnce(true), true);
   assert.equal(JSON.parse(fields()[0]).length, 2);
   assert.equal(JSON.parse(fields()[0])[1].description, elements.itemDesc.value);
+  assert.deepEqual(calls.filter(call => call.backup).map(call => call.backup), ['note-added', 'note-updated']);
 });
 
 test('empty notes are notified and cannot be stored', async () => {
@@ -262,6 +265,14 @@ test('empty notes are notified and cannot be stored', async () => {
   assert.equal(await context.saveItemNoteOnce(), false);
   assert.ok(calls.some(call => call.toast === 'Note text is required'));
   assert.deepEqual(fields(), originalFields);
+});
+
+test('unchanged note auto-saves do not write duplicate backups', async () => {
+  const { context, calls } = mutations();
+  assert.equal(await context.saveItemNoteOnce(true), true);
+  assert.equal(await context.saveItemNoteOnce(true), false);
+  assert.equal(calls.filter(call => call.sql).length, 1);
+  assert.deepEqual(calls.filter(call => call.backup).map(call => call.backup), ['note-added']);
 });
 
 test('storage failures roll back notes and keep the draft/editor intact', async () => {
@@ -297,21 +308,22 @@ test('canceling encryption leaves all stored fields and the draft untouched', as
 });
 
 test('delete removes only the requested note and rejects a stale index', async () => {
-  const { context, fields } = mutations();
+  const { context, fields, calls } = mutations();
   await context.updateItemNotes(7, notes => [...notes, note]);
   await context.deleteItemNote(null, 7, 0);
   assert.deepEqual(JSON.parse(fields()[0]), [note]);
+  assert.ok(calls.some(call => call.backup === 'note-deleted'));
   await context.deleteItemNote(null, 7, 9);
   assert.deepEqual(JSON.parse(fields()[0]), [note]);
 });
 
-test('parent auto-save cannot accidentally overwrite the description while a note is open', () => {
+test('parent auto-save cannot accidentally overwrite the description while a note is open', async () => {
   const { context } = helpers({
     itemNoteEditor: { itemId: 7 },
     document: { getElementById: () => { throw new Error('Must not read parent fields'); } },
   });
-  vm.runInContext(app.slice(app.indexOf('function silentSaveItem('), app.indexOf('function scheduleAutoSave(')), context);
-  assert.equal(context.silentSaveItem(), false);
+  vm.runInContext(app.slice(app.indexOf('async function silentSaveItem('), app.indexOf('function scheduleAutoSave(')), context);
+  assert.equal(await context.silentSaveItem(), false);
 });
 
 test('clipboard copies include every note in order without losing the original description', () => {

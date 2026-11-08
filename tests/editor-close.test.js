@@ -12,7 +12,7 @@ function setup({ changed = false, pending = false, saving = false, accept = fals
   const context = vm.createContext({
     itemEditorChanged: changed, descriptionImagePastePending: pending,
     itemSaveInProgress: saving, descriptionEditorSession: 0, sketchActive: false,
-    autoSaveTimer: null, itemNoteEditor: null,
+    autoSaveTimer: null, itemNoteEditor: null, itemEditorChangeRevision: 0,
     document: { getElementById: id => id === 'itemModal' ? modal : { value: 'secret' } },
     confirm: message => { calls.push(['confirm', message]); return accept; },
     toast: message => calls.push(['toast', message]),
