@@ -49,11 +49,17 @@ Expand a saved task or reference item and choose **+ Add note** below its
 description. Notes have an optional title and their own Plain text/Markdown and
 Auto/LTR/RTL controls, using the same formatting, preview, image-paste and undo
 support as the description editor. Save the item first when creating a new item.
+The note editor is wide on desktop, with a roomy Write/Preview area and Save
+controls that stay visible while scrolling. It adapts to smaller screens.
 
 Notes appear in the order added. Click a note heading to collapse or expand it;
 use its **Edit** or **Delete** button to change just that note. The original
 description remains separate and is never automatically split or rewritten.
 Notes are distinct from actionable follow-ups.
+Click **Description** to collapse the main description without hiding the notes
+or other item controls. It starts expanded and remembers its collapse state
+while the page is open, including in the full-screen reader. Shared readers also
+support collapsing the description. This changes only the view, not saved text.
 
 Notes are included in search, clipboard copies, share links, full-screen reading,
 exports and backups. Encrypted items encrypt their notes together with the rest

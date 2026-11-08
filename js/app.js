@@ -920,6 +920,7 @@ function applySnapshot(snapshot) {
 
   unlockedProtectedItems.clear();
   decryptedProtectedItems.clear();
+  collapsedDescriptions.clear();
 }
 
 function formatBackupDate(iso) {
@@ -1495,7 +1496,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
     detail = `
       <div class="item-detail">
         ${desc
-          ? renderDescription(desc, descriptionFormat, descriptionDirection)
+          ? renderCollapsibleDescription(desc, descriptionFormat, descriptionDirection, iid)
           : (!sketchData && !notes.length ? '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>' : '')}
         ${renderItemNotes(notes, iid)}
         ${link
@@ -1618,7 +1619,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
     detail = `
       <div class="item-detail">
         ${desc
-          ? renderDescription(desc, descriptionFormat, descriptionDirection)
+          ? renderCollapsibleDescription(desc, descriptionFormat, descriptionDirection, iid)
           : (!notes.length ? '<div style="color:var(--text-muted);font-size:17px;margin-bottom:10px;">No description</div>' : '')}
         ${renderItemNotes(notes, iid)}
         ${link
@@ -1798,7 +1799,7 @@ function openItemFullscreen(event, itemId) {
   let content;
   try {
     item = getItemContent(itemId);
-    content = renderSharedItemContent(item);
+    content = renderSharedItemContent(item, itemId);
   } catch (error) {
     console.error('Could not open full-screen item', error);
     toast('Could not open item: ' + error.message);
@@ -2285,6 +2286,10 @@ function saveSection() {
 
 function deleteSection(id) {
   if (!confirm('Delete this board and all its items?')) return;
+  const items = db.exec('SELECT id FROM items WHERE section_id = ?', [id]);
+  if (items.length) {
+    for (const [itemId] of items[0].values) collapsedDescriptions.delete(itemId);
+  }
   db.run('DELETE FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
   db.run('DELETE FROM items WHERE section_id = ?', [id]);
   db.run('DELETE FROM sections WHERE id = ?', [id]);
@@ -2674,8 +2679,7 @@ function openItemModal(sectionId, editId, noteEditor = null) {
   document.getElementById('sketchToggleWrap').style.display = '';
   document.getElementById('sketchToggleBtn').textContent = '\u270E Add sketch';
 
-  // Widen modal for reference boards (to fit canvas)
-  document.getElementById('itemModalInner').classList.toggle('item-modal-wide', isRef && !noteEditor);
+  document.getElementById('itemModalInner').classList.toggle('item-modal-wide', isRef || !!noteEditor);
 
   if (editId) {
     titleEl.textContent = 'Edit Item';
@@ -3088,6 +3092,7 @@ async function deleteItemNote(event, itemId, index) {
 function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
   expandedItems.delete(id);
+  collapsedDescriptions.delete(id);
   unlockedProtectedItems.delete(id);
   decryptedProtectedItems.delete(id);
   db.run('DELETE FROM followups WHERE item_id = ?', [id]);
@@ -3239,6 +3244,7 @@ function importData(event) {
       activeView = 'board';
       unlockedProtectedItems.clear();
       decryptedProtectedItems.clear();
+      collapsedDescriptions.clear();
 
       persist();
       renderSidebar();

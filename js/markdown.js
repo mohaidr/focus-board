@@ -310,6 +310,26 @@ function renderDescription(source, format = 'plain', direction = 'auto') {
   return `<div class="item-detail-desc${markdownClass}" dir="${validDirection}">${renderDescriptionContent(source, format, direction)}</div>`;
 }
 
+const collapsedDescriptions = new Set();
+
+function renderCollapsibleDescription(source, format = 'plain', direction = 'auto', itemId = null) {
+  const open = itemId === null || !collapsedDescriptions.has(itemId);
+  const state = itemId === null ? '' : ` data-description-item-id="${escAttr(String(itemId))}" ontoggle="onDescriptionToggle(this)"`;
+  return `<details class="item-description"${open ? ' open' : ''}${state}>
+    <summary><span class="item-description-title">Description</span></summary>
+    ${renderDescription(source, format, direction)}
+  </details>`;
+}
+
+function onDescriptionToggle(element) {
+  const itemId = Number(element.dataset.descriptionItemId);
+  if (element.open) collapsedDescriptions.delete(itemId);
+  else collapsedDescriptions.add(itemId);
+  document.querySelectorAll(`.item-description[data-description-item-id="${itemId}"]`).forEach(description => {
+    if (description !== element && description.open !== element.open) description.open = element.open;
+  });
+}
+
 function validateItemNotes(notes = []) {
   if (!Array.isArray(notes)) throw new Error('Notes must be a list');
   return notes.map(note => {

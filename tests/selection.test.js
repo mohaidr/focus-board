@@ -12,7 +12,7 @@ function setup() {
     isItemLocked: () => false,
     esc: value => value,
     escAttr: value => value,
-    renderDescription: text => `<div class="item-detail-desc">${text}</div>`,
+    renderCollapsibleDescription: text => `<div class="item-detail-desc">${text}</div>`,
     renderFollowups: () => '',
     renderItemNotes: () => '',
     RECURRENCE_LABELS: {},

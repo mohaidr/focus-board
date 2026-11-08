@@ -260,7 +260,7 @@ test('task, reference, and shared/full-screen readers forward direction to the c
   const context = vm.createContext({
     db: { exec: () => [] }, isItemLocked: () => false,
     esc, escAttr: esc, RECURRENCE_LABELS: {},
-    renderDescription: (...args) => { calls.push(args); return 'description'; },
+    renderCollapsibleDescription: (source, format, direction) => { calls.push([source, format, direction]); return 'description'; },
     renderFollowups: () => '',
     renderItemNotes: () => '',
   });

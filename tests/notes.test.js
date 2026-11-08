@@ -10,6 +10,7 @@ const markdown = fs.readFileSync(path.join(root, 'js', 'markdown.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
 const share = fs.readFileSync(path.join(root, 'js', 'share.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'js', 'db.js'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
 const source = '## \u0645\u0631\u062d\u0628\u0627\n\n**Keep** two spaces  \nnext line\n\n```js\nconst value = 1;\n```\n';
 const note = { title: 'Investigation', description: source, descriptionFormat: 'markdown', descriptionDirection: 'rtl' };
 const plain = { title: '', description: 'Literal **text**', descriptionFormat: 'plain', descriptionDirection: 'auto' };
@@ -20,6 +21,7 @@ function helpers(extra = {}) {
   const errors = [];
   const context = vm.createContext({
     esc, escAttr: esc,
+    document: { querySelectorAll: () => [] },
     console: { error: (...args) => errors.push(args) },
     ...extra,
   });
@@ -98,10 +100,64 @@ test('shared/read-only notes have no mutation controls, and empty readers have n
   assert.match(context.renderItemNotes([], 7), /\+ Add note/);
 });
 
+test('task and reference notes use the wide editor with roomy writing and preview areas', () => {
+  assert.match(app, /classList\.toggle\('item-modal-wide', isRef \|\| !!noteEditor\)/);
+  assert.match(css, /#itemModal\.editing-note #itemDesc,\s*#itemModal\.editing-note \.description-preview\s*\{\s*min-height:\s*clamp\(220px, 42vh, 440px\)/);
+  assert.match(css, /#itemModal\.editing-note \.modal-actions\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0;/);
+  assert.match(css, /#itemModal\.editing-note \.modal\s*\{\s*max-height:\s*calc\(100dvh - 32px\)/);
+});
+
 test('damaged note rendering reports an explicit visible error', () => {
   const { context, errors } = helpers();
   assert.match(context.renderItemNotes(null), /role="alert"/);
   assert.equal(errors.length, 1);
+});
+
+test('the main description starts expanded and keeps its original text and writing direction', () => {
+  const { context } = helpers();
+  const html = context.renderCollapsibleDescription(source, 'plain', 'rtl', 7);
+  assert.match(html, /<details class="item-description" open/);
+  assert.match(html, /<summary><span class="item-description-title">Description<\/span><\/summary>/);
+  assert.match(html, /<div class="item-detail-desc" dir="rtl">/);
+  assert.ok(html.includes(esc(source)));
+});
+
+test('main-description collapse survives rerendering and resets independently per item', () => {
+  const { context } = helpers();
+  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: false });
+  assert.doesNotMatch(context.renderCollapsibleDescription('Main', 'plain', 'auto', 7), /class="item-description" open/);
+  assert.match(context.renderCollapsibleDescription('Other item', 'plain', 'auto', 8), /class="item-description" open/);
+  assert.match(context.renderCollapsibleDescription('Shared reader'), /class="item-description" open/);
+  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: true });
+  assert.match(context.renderCollapsibleDescription('Main', 'plain', 'auto', 7), /class="item-description" open/);
+});
+
+test('changing description collapse synchronizes other mounted readers of the same item', () => {
+  const changed = { dataset: { descriptionItemId: '7' }, open: false };
+  const sibling = { open: true };
+  const { context } = helpers({ document: { querySelectorAll: selector => {
+    assert.equal(selector, '.item-description[data-description-item-id="7"]');
+    return [changed, sibling];
+  } } });
+  context.onDescriptionToggle(changed);
+  assert.equal(sibling.open, false);
+  changed.open = true;
+  context.onDescriptionToggle(changed);
+  assert.equal(sibling.open, true);
+});
+
+test('shared and full-screen main descriptions collapse without nesting a second control in notes', () => {
+  const { context } = helpers();
+  vm.runInContext(share.slice(share.indexOf('function renderSharedItemContent('), share.indexOf('function openSharedItemFromUrl(')), context);
+  const item = { boardType: 'reference', description: 'Original', descriptionFormat: 'plain',
+    descriptionDirection: 'auto', notes: [plain], followups: [] };
+  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: false });
+  const fullscreen = context.renderSharedItemContent(item, 7);
+  assert.doesNotMatch(fullscreen, /class="item-description" open/);
+  assert.equal((fullscreen.match(/class="item-description"/g) || []).length, 1);
+  assert.ok(fullscreen.indexOf('<section class="item-notes"') > fullscreen.indexOf('</details>'));
+  assert.doesNotMatch(context.renderItemNotes([plain]), /class="item-description"/);
+  assert.match(context.renderSharedItemContent(item), /class="item-description" open/);
 });
 
 test('search matches note titles and bodies', () => {

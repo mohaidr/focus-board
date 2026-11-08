@@ -160,7 +160,7 @@ function closeShareModal() {
   closeModal('shareItemModal');
 }
 
-function renderSharedItemContent(item) {
+function renderSharedItemContent(item, itemId = null) {
   const metadata = [item.boardType === 'task' ? 'Task item' : 'Reference item'];
   if (item.boardType === 'task') metadata.push(['To Do', 'In Progress', 'Done'][item.status]);
   if (item.dueDate) metadata.push('Due: ' + formatDueDate(item.dueDate));
@@ -180,7 +180,7 @@ function renderSharedItemContent(item) {
     : '';
   return `
     <div class="shared-item-meta">${metadata.map(text => `<span>${esc(text)}</span>`).join('')}</div>
-    ${item.description ? renderDescription(item.description, item.descriptionFormat, item.descriptionDirection) : ''}
+    ${item.description ? renderCollapsibleDescription(item.description, item.descriptionFormat, item.descriptionDirection, itemId) : ''}
     ${renderItemNotes(item.notes)}
     ${item.link ? `<div class="item-detail-link"><a href="${escAttr(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a></div>` : ''}
     ${item.sketchData ? `<div class="sketch-preview-large"><img src="${escAttr(item.sketchData)}" alt="Shared sketch"></div>` : ''}
