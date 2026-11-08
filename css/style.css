@@ -162,7 +162,17 @@ body {
   position: sticky;
   top: 0;
 }
-:root[data-theme="light"] .sidebar { background: var(--bg); }
+:root[data-theme="light"],
+:root[data-theme="light"] body,
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .sidebar-nav,
+:root[data-theme="light"] .sidebar-bottom,
+:root[data-theme="light"] .main,
+:root[data-theme="light"] .main-header,
+:root[data-theme="light"] .main-body { background: var(--bg); }
+:root[data-theme="light"] .main-header { backdrop-filter: none; }
+:root[data-theme="light"]::-webkit-scrollbar-track,
+:root[data-theme="light"] ::-webkit-scrollbar-track { background: var(--bg); }
 
 .sidebar-brand {
   padding: 24px 20px 20px;

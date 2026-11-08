@@ -220,7 +220,7 @@ test('theme bootstrap and metadata precede styles, and the bootstrap is cached o
     assert.ok(position >= 0 && position < script);
   }
   assert.match(worker, /'\.\/js\/theme\.js'/);
-  assert.match(worker, /const CACHE_VERSION = 42;/);
+  assert.match(worker, /const CACHE_VERSION = 43;/);
 });
 
 const darkBlock = css.match(/:root\s*\{([\s\S]*?)\}/);
@@ -272,8 +272,13 @@ test('light theme uses the requested background and retains softer card surfaces
   }
 });
 
-test('the light sidebar matches the page background without changing dark mode', () => {
-  assert.match(css, /:root\[data-theme="light"\] \.sidebar\s*\{\s*background:\s*var\(--bg\);/);
+test('light panes and scroll tracks share one opaque background without header tinting', () => {
+  const surfaces = css.match(/(:root\[data-theme="light"\],[\s\S]+?)\{\s*background:\s*var\(--bg\);\s*\}/)[1];
+  for (const selector of ['body', '.sidebar', '.sidebar-nav', '.sidebar-bottom', '.main', '.main-header', '.main-body']) {
+    assert.ok(surfaces.includes(':root[data-theme="light"] ' + selector), selector);
+  }
+  assert.match(css, /:root\[data-theme="light"\] \.main-header\s*\{\s*backdrop-filter:\s*none;/);
+  assert.match(css, /:root\[data-theme="light"\] ::-webkit-scrollbar-track\s*\{\s*background:\s*var\(--bg\);/);
   assert.match(css, /^\.sidebar\s*\{[^}]*background:\s*var\(--surface\);/m);
 });
 
