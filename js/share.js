@@ -12,6 +12,8 @@ function validateSharedItem(item) {
   }
   if (!item.title.trim()) throw new Error('Shared item title is required');
   if (!['plain', 'markdown'].includes(item.descriptionFormat)) throw new Error('Unsupported description format');
+  const descriptionDirection = item.descriptionDirection === undefined ? 'auto' : item.descriptionDirection;
+  if (!isDescriptionDirection(descriptionDirection)) throw new Error('Unsupported description direction');
   if (!['task', 'reference'].includes(item.boardType)) throw new Error('Unsupported board type');
   if (![0, 1, 2].includes(item.status)) throw new Error('Invalid task status');
   if (![0, 1, 2, 3, 4, 5].includes(item.recurring)) throw new Error('Invalid recurring schedule');
@@ -39,6 +41,7 @@ function validateSharedItem(item) {
     title: item.title,
     description: item.description,
     descriptionFormat: item.descriptionFormat,
+    descriptionDirection,
     link: item.link,
     boardType: item.boardType,
     status: item.status,
@@ -89,16 +92,17 @@ function getItemContent(id) {
   if (protection.isEncrypted && !decrypted) throw new Error('Unlock this item to read its content');
   const result = db.exec(`
     SELECT i.title, i.description, i.description_format, i.link, i.sketch_data,
-           i.status, i.due_date, i.recurring, i.recurring_days, i.recurring_time, s.type
+           i.status, i.due_date, i.recurring, i.recurring_days, i.recurring_time, s.type, i.description_direction
     FROM items i JOIN sections s ON s.id = i.section_id WHERE i.id = ?`, [id]);
   if (!result.length) throw new Error('Item not found');
   const [title, description, descriptionFormat, link, sketchData, status, dueDate,
-    recurring, recurringDays, recurringTime, boardType] = result[0].values[0];
+    recurring, recurringDays, recurringTime, boardType, descriptionDirection] = result[0].values[0];
   const followups = db.exec('SELECT text, completed FROM followups WHERE item_id = ? ORDER BY sort_order, id', [id]);
   return {
     title: decrypted ? decrypted.title : title,
     description: (decrypted ? decrypted.description : description) || '',
     descriptionFormat,
+    descriptionDirection,
     link: (decrypted ? decrypted.link : link) || '',
     sketchData: (decrypted ? decrypted.sketchData : sketchData) || null,
     status: status || 0,
@@ -174,7 +178,7 @@ function renderSharedItemContent(item) {
     : '';
   return `
     <div class="shared-item-meta">${metadata.map(text => `<span>${esc(text)}</span>`).join('')}</div>
-    ${item.description ? renderDescription(item.description, item.descriptionFormat) : ''}
+    ${item.description ? renderDescription(item.description, item.descriptionFormat, item.descriptionDirection) : ''}
     ${item.link ? `<div class="item-detail-link"><a href="${escAttr(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a></div>` : ''}
     ${item.sketchData ? `<div class="sketch-preview-large"><img src="${escAttr(item.sketchData)}" alt="Shared sketch"></div>` : ''}
     ${followups}`;
@@ -279,10 +283,10 @@ async function saveSharedItemCopy() {
       }
       const order = db.exec('SELECT COALESCE(MAX(sort_order), 0) + 1 FROM items WHERE section_id = ?', [sectionId])[0].values[0][0];
       db.run(`INSERT INTO items
-        (section_id, title, description, description_format, link, sketch_data, status, completed,
+        (section_id, title, description, description_format, description_direction, link, sketch_data, status, completed,
          completed_at, due_date, recurring, recurring_days, recurring_time, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 2 THEN datetime('now') ELSE NULL END, ?, ?, ?, ?, ?)`,
-      [sectionId, item.title, item.description, item.descriptionFormat, item.link, item.sketchData,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 2 THEN datetime('now') ELSE NULL END, ?, ?, ?, ?, ?)`,
+      [sectionId, item.title, item.description, item.descriptionFormat, item.descriptionDirection, item.link, item.sketchData,
        item.status, item.status === 2 ? 1 : 0, item.status, item.dueDate, item.recurring,
        item.recurringDays, item.recurringTime, order]);
       itemId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];

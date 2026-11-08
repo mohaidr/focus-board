@@ -109,7 +109,7 @@ test('shared content reader preserves local data while sharing still validates i
     decryptedProtectedItems: new Map(),
     db: { exec: sql => sql.includes('FROM items i') ? [{
       values: [['Title', 'Description', 'markdown', 'file:///local-note', null, 1,
-        null, 0, null, null, 'task']],
+        null, 0, null, null, 'task', 'rtl']],
     }] : [{ values: [['Follow-up', 1]] }] },
     validateSharedItem: () => { throw new Error('Sharing validation applied'); },
   });
@@ -118,6 +118,7 @@ test('shared content reader preserves local data while sharing still validates i
   const content = context.getItemContent(7);
   assert.equal(content.link, 'file:///local-note');
   assert.equal(content.descriptionFormat, 'markdown');
+  assert.equal(content.descriptionDirection, 'rtl');
   assert.equal(content.followups[0].completed, true);
   assert.throws(() => context.getItemShareContent(7), /Sharing validation applied/);
 });
@@ -130,7 +131,7 @@ test('content retrieval uses decrypted fields, never stored ciphertext placehold
       title: 'Private title', description: 'Private description', link: '', sketchData: null,
     }]]),
     db: { exec: sql => sql.includes('FROM items i') ? [{
-      values: [['Encrypted item', '', 'markdown', '', null, 0, null, 0, null, null, 'reference']],
+      values: [['Encrypted item', '', 'markdown', '', null, 0, null, 0, null, null, 'reference', 'rtl']],
     }] : [] },
   });
   vm.runInContext(share.slice(share.indexOf('function getItemContent('),
@@ -138,6 +139,7 @@ test('content retrieval uses decrypted fields, never stored ciphertext placehold
   const content = context.getItemContent(7);
   assert.equal(content.title, 'Private title');
   assert.equal(content.description, 'Private description');
+  assert.equal(content.descriptionDirection, 'rtl');
   context.decryptedProtectedItems.clear();
   assert.throws(() => context.getItemContent(7), /Unlock this item/);
 });

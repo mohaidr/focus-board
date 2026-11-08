@@ -1,6 +1,182 @@
 let descriptionMarkdownParser = null;
 let descriptionMarkdownConverter = null;
 
+function isDescriptionDirection(direction) {
+  return ['auto', 'ltr', 'rtl'].includes(direction);
+}
+
+function getDescriptionFormattingEdit(source, start, end, action) {
+  const markers = { bold: '**', italic: '*', strike: '~~' };
+  const blockPatterns = {
+    heading: /^([ \t]*)##[ \t]+/,
+    bullet: /^([ \t]*)[-+*][ \t]+(?!\[[ xX]\][ \t])/,
+    numbered: /^([ \t]*)\d+[.)][ \t]+/,
+    checklist: /^([ \t]*)[-+*][ \t]+\[[ xX]\][ \t]+/,
+    quote: /^([ \t]*)>[ \t]?/,
+  };
+  if (typeof source !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) ||
+      start < 0 || end < start || end > source.length) {
+    throw new Error('The description selection is invalid. Select the text again.');
+  }
+  if (!Object.hasOwn(markers, action) && !Object.hasOwn(blockPatterns, action) &&
+      !['code', 'code-block', 'link'].includes(action)) {
+    throw new Error('Unsupported Markdown formatting action.');
+  }
+
+  const codeRanges = [];
+  let fence = null;
+  let offset = 0;
+  for (const line of source.split('\n')) {
+    const match = line.match(/^[ \t]*(?:>[ \t]*)*(?:[-+*][ \t]+|\d+[.)][ \t]+)?(`{3,}|~{3,})(.*)$/);
+    if (!fence && match) {
+      fence = { start: offset, marker: match[1][0], length: match[1].length };
+    } else if (fence && match && match[1][0] === fence.marker &&
+               match[1].length >= fence.length && !match[2].trim()) {
+      codeRanges.push({ start: fence.start, end: offset + line.length });
+      fence = null;
+    }
+    offset += line.length + 1;
+  }
+  if (fence) codeRanges.push({ start: fence.start, end: source.length });
+  if (codeRanges.some(range => {
+    const overlaps = start === end
+      ? start >= range.start && start <= range.end
+      : start < range.end && end > range.start;
+    return overlaps && !(action === 'code-block' && start <= range.start && end >= range.end);
+  })) {
+    throw new Error('Formatting inside a fenced code block would change its syntax. Select text outside the block.');
+  }
+
+  const selected = source.slice(start, end);
+  if (Object.hasOwn(markers, action)) {
+    const marker = markers[action];
+    const before = source.slice(0, start);
+    const after = source.slice(end);
+    const leftStars = (before.match(/\*+$/) || [''])[0].length;
+    const rightStars = (after.match(/^\*+/) || [''])[0].length;
+    const surrounded = selected && !selected.includes('\n') &&
+      before.endsWith(marker) && after.startsWith(marker) &&
+      (action !== 'italic' || (leftStars % 2 === 1 && rightStars % 2 === 1));
+    if (surrounded) {
+      return {
+        start: start - marker.length, end: end + marker.length, text: selected,
+        selectionStart: start - marker.length, selectionEnd: end - marker.length,
+      };
+    }
+    let position = start;
+    const parts = selected.split('\n').map(line => {
+      const wholeLine = position === 0 || source[position - 1] === '\n';
+      position += line.length + 1;
+      const prefix = line.match(wholeLine
+        ? /^[ \t]*(?:>[ \t]*)*(?:(?:#{1,6}|[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?/
+        : /^[ \t]*/)[0];
+      const rest = line.slice(prefix.length);
+      const suffix = rest.match(/[ \t\r]*$/)[0];
+      const body = rest.slice(0, rest.length - suffix.length);
+      if (wholeLine && body.startsWith('|')) {
+        throw new Error('Select text within a table cell, rather than the Markdown table markers.');
+      }
+      return { prefix, body, suffix };
+    });
+    if (!parts.some(part => part.body)) parts[0].body = 'text';
+    const isWrapped = part =>
+      part.body.length > marker.length * 2 && part.body.startsWith(marker) && part.body.endsWith(marker) &&
+      (action !== 'italic' || (part.body.match(/^\*+/)[0].length % 2 === 1 &&
+        part.body.match(/\*+$/)[0].length % 2 === 1));
+    const remove = parts.filter(part => part.body).every(isWrapped);
+    const text = parts.map(part => part.prefix + (part.body
+      ? remove ? part.body.slice(marker.length, -marker.length)
+        : isWrapped(part) ? part.body : marker + part.body + marker
+      : '') + part.suffix).join('\n');
+    const selectionStart = parts.length === 1 ? start + parts[0].prefix.length + (remove ? 0 : marker.length) : start;
+    const selectionEnd = parts.length === 1
+      ? selectionStart + parts[0].body.length - (remove ? marker.length * 2 : 0)
+      : start + text.length;
+    return { start, end, text, selectionStart, selectionEnd };
+  }
+
+  if (action === 'code' || action === 'link') {
+    if (selected.includes('\n')) {
+      throw new Error(action === 'code'
+        ? 'Select a single line for inline code, or use Code block.'
+        : 'Select a single line for a link.');
+    }
+    if (action === 'code') {
+      const body = selected || 'code';
+      const longest = (body.match(/`+/g) || []).reduce((max, run) => Math.max(max, run.length), 0);
+      const ticks = '`'.repeat(longest + 1);
+      const padding = body.startsWith('`') || body.endsWith('`') || (/^ .* $/.test(body) && body.trim()) ? ' ' : '';
+      const selectionStart = start + ticks.length + padding.length;
+      return {
+        start, end, text: ticks + padding + body + padding + ticks,
+        selectionStart, selectionEnd: selectionStart + body.length,
+      };
+    }
+    const prefix = selected.match(/^[ \t]*/)[0];
+    const suffix = selected.slice(prefix.length).match(/[ \t]*$/)[0];
+    const label = (selected.trim() || 'link text').replace(/[\\[\]]/g, '\\$&');
+    const url = 'https://example.com';
+    const selectionStart = start + prefix.length + label.length + 3;
+    return {
+      start, end, text: prefix + '[' + label + '](' + url + ')' + suffix,
+      selectionStart, selectionEnd: selectionStart + url.length,
+    };
+  }
+
+  const blockStart = start === 0 ? 0 : source.lastIndexOf('\n', start - 1) + 1;
+  const last = end > start && source[end - 1] === '\n' ? end - 1 : end;
+  const nextBreak = source.indexOf('\n', last);
+  const blockEnd = nextBreak === -1 ? source.length : nextBreak;
+  const block = source.slice(blockStart, blockEnd);
+  let text;
+  let contentOffset = 0;
+  let contentLength = 0;
+  let remove = false;
+  if (action === 'code-block') {
+    const body = block || 'code';
+    const longest = (body.match(/`+/g) || []).reduce((max, run) => Math.max(max, run.length), 0);
+    const ticks = '`'.repeat(Math.max(3, longest + 1));
+    text = ticks + '\n' + body + '\n' + ticks;
+    contentOffset = ticks.length + 1;
+    contentLength = body.length;
+  } else {
+    const pattern = blockPatterns[action];
+    const lines = block.split('\n');
+    const nonempty = lines.filter(line => line.trim());
+    remove = nonempty.length > 0 && nonempty.every(line => pattern.test(line));
+    let number = 0;
+    const placeholder = action === 'heading' ? 'Heading' : action === 'quote' ? 'Quote' : 'List item';
+    if (!nonempty.length) lines[0] += placeholder;
+    text = lines.map(line => {
+      if (!line.trim()) return action === 'quote' && !remove ? '> ' + line : line;
+      if (remove) return line.replace(pattern, '$1');
+      const indent = line.match(/^[ \t]*/)[0];
+      let body = line.slice(indent.length);
+      if (action === 'checklist' && /^[-+*][ \t]+\[[ xX]\][ \t]+/.test(body)) return line;
+      if (action === 'heading') body = body.replace(/^#{1,6}[ \t]+/, '');
+      if (['bullet', 'numbered', 'checklist'].includes(action)) {
+        body = body.replace(/^(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/, '');
+      }
+      const prefix = {
+        heading: '## ', bullet: '- ', numbered: ++number + '. ', checklist: '- [ ] ', quote: '> ',
+      }[action];
+      return indent + prefix + body;
+    }).join('\n');
+    if (!nonempty.length) {
+      contentOffset = text.indexOf(placeholder);
+      contentLength = placeholder.length;
+    }
+  }
+  // Separate block formatting from adjacent paragraphs to avoid lazy continuations.
+  const before = source.slice(0, blockStart);
+  const after = source.slice(blockEnd);
+  const prefix = remove || !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+  const suffix = remove || !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+  const selectionStart = blockStart + prefix.length + (contentLength ? contentOffset : 0);
+  const selectionEnd = selectionStart + (contentLength || text.length);
+  return { start: blockStart, end: blockEnd, text: prefix + text + suffix, selectionStart, selectionEnd };
+}
+
 function readDescriptionImage(file) {
   return new Promise((resolve, reject) => {
     if (!file || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
@@ -65,7 +241,10 @@ function convertDescriptionHtmlToMarkdown(html) {
   return descriptionMarkdownConverter.turndown(container);
 }
 
-function renderDescriptionContent(source, format = 'plain') {
+function renderDescriptionContent(source, format = 'plain', direction = 'auto') {
+  if (!isDescriptionDirection(direction)) {
+    return renderDescriptionError(source, 'Unsupported description direction. Original text:');
+  }
   if (format === 'plain') return esc(source);
   if (format !== 'markdown') {
     return renderDescriptionError(source, 'Unsupported description format. Original text:');
@@ -98,7 +277,8 @@ function renderDescriptionContent(source, format = 'plain') {
     });
   }
 
-  return DOMPurify.sanitize(descriptionMarkdownParser.parse(source), {
+  const fragment = DOMPurify.sanitize(descriptionMarkdownParser.parse(source), {
+    RETURN_DOM_FRAGMENT: true,
     ALLOWED_TAGS: [
       'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
       'hr', 'img', 'input', 'li', 'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td',
@@ -111,6 +291,12 @@ function renderDescriptionContent(source, format = 'plain') {
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
   });
+  fragment.querySelectorAll('p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table, th, td')
+    .forEach(element => element.setAttribute('dir', direction));
+  fragment.querySelectorAll('pre, code').forEach(element => element.setAttribute('dir', 'ltr'));
+  const container = document.createElement('div');
+  container.append(fragment);
+  return container.innerHTML;
 }
 
 function renderDescriptionError(source, message) {
@@ -118,17 +304,21 @@ function renderDescriptionError(source, message) {
   return `<div class="description-render-error" role="alert">${esc(message)}</div><div class="description-source">${esc(source)}</div>`;
 }
 
-function renderDescription(source, format = 'plain') {
+function renderDescription(source, format = 'plain', direction = 'auto') {
   const markdownClass = format === 'markdown' ? ' markdown-content' : '';
-  return `<div class="item-detail-desc${markdownClass}">${renderDescriptionContent(source, format)}</div>`;
+  const validDirection = isDescriptionDirection(direction) ? direction : 'auto';
+  return `<div class="item-detail-desc${markdownClass}" dir="${validDirection}">${renderDescriptionContent(source, format, direction)}</div>`;
 }
 
-function validateDescriptionFormats(items) {
+function validateDescriptionMetadata(items) {
   const result = items[0];
   if (!result || !result.columns || !result.values) return;
   const formatIndex = result.columns.indexOf('description_format');
-  if (formatIndex === -1) return;
-  if (result.values.some(row => row[formatIndex] !== 'plain' && row[formatIndex] !== 'markdown')) {
+  if (formatIndex !== -1 && result.values.some(row => row[formatIndex] !== 'plain' && row[formatIndex] !== 'markdown')) {
     throw new Error('Unsupported description format in imported items');
+  }
+  const directionIndex = result.columns.indexOf('description_direction');
+  if (directionIndex !== -1 && result.values.some(row => !isDescriptionDirection(row[directionIndex]))) {
+    throw new Error('Unsupported description direction in imported items');
   }
 }

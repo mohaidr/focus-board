@@ -63,6 +63,7 @@ function createTables() {
       sort_order  INTEGER DEFAULT 0,
       created_at  TEXT DEFAULT (datetime('now')),
       description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'markdown')),
+      description_direction TEXT NOT NULL DEFAULT 'auto' CHECK (description_direction IN ('auto', 'ltr', 'rtl')),
       FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
     )
   `);
@@ -70,6 +71,9 @@ function createTables() {
   const itemColumns = db.exec('PRAGMA table_info(items)')[0].values.map(column => column[1]);
   if (!itemColumns.includes('description_format')) {
     db.run("ALTER TABLE items ADD COLUMN description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'markdown'))");
+  }
+  if (!itemColumns.includes('description_direction')) {
+    db.run("ALTER TABLE items ADD COLUMN description_direction TEXT NOT NULL DEFAULT 'auto' CHECK (description_direction IN ('auto', 'ltr', 'rtl'))");
   }
 
   // Migration: add recurring column if missing

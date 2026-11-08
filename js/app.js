@@ -864,7 +864,7 @@ function applySnapshot(snapshot) {
   if (!snapshot || !snapshot.sections || !snapshot.items) {
     throw new Error('Invalid backup data');
   }
-  validateDescriptionFormats(snapshot.items);
+  validateDescriptionMetadata(snapshot.items);
 
   db.run('DELETE FROM items');
   db.run('DELETE FROM sections');
@@ -1310,25 +1310,25 @@ function renderMain() {
   // Load items from DB (with search filter if active)
   const itemsRes = db.exec(
     `SELECT id, title, description, link, completed, recurring, status, due_date,
-            description_format, protected, password_hash, password_salt, encrypted, sketch_data
+            description_format, description_direction, protected, password_hash, password_salt, encrypted, sketch_data
      FROM items WHERE section_id = ? ORDER BY sort_order, id`,
     [sid]
   );
   let rows = itemsRes.length ? itemsRes[0].values : [];
   rows = rows.map(row => {
-    if (row[12] !== 1) return row;
+    if (row[13] !== 1) return row;
     const payload = decryptedProtectedItems.get(row[0]);
     if (!payload) return row;
     const hydrated = [...row];
     hydrated[1] = payload.title || '';
     hydrated[2] = payload.description || '';
     hydrated[3] = payload.link || '';
-    hydrated[13] = payload.sketchData || null;
+    hydrated[14] = payload.sketchData || null;
     return hydrated;
   });
   if (searchTerm) {
     rows = rows.filter(row => {
-      if (boardType === 'reference' && isItemLocked(row[0], row[9])) return false;
+      if (boardType === 'reference' && isItemLocked(row[0], row[10])) return false;
       return (row[1] || '').toLowerCase().includes(searchTerm)
         || (row[2] || '').toLowerCase().includes(searchTerm);
     });
@@ -1355,9 +1355,9 @@ function renderMain() {
     // ── Reference Board: flat list ──
     html += '<div class="ref-board">';
     for (const [iid, title, desc, link, completed, recurring, status, dueDate,
-      descriptionFormat, isProtected, passwordHash, passwordSalt, isEncrypted, sketchData] of rows) {
+      descriptionFormat, descriptionDirection, isProtected, passwordHash, passwordSalt, isEncrypted, sketchData] of rows) {
       html += renderRefItem(
-        iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted, descriptionFormat
+        iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection
       );
     }
     html += '</div>';
@@ -1386,8 +1386,8 @@ function renderMain() {
       </div>`;
     if (!todoCollapsed) {
       html += '<div class="kanban-column-body" id="itemList">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat] of todoRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of todoRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
       }
       if (!todoRows.length) {
         html += '<div class="kanban-empty">Nothing waiting here</div>';
@@ -1413,8 +1413,8 @@ function renderMain() {
       </div>`;
     if (!inProgressCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat] of ipRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of ipRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
       }
       if (!ipRows.length) {
         html += '<div class="kanban-empty">Ready when you are</div>';
@@ -1437,8 +1437,8 @@ function renderMain() {
       </div>`;
     if (!doneCollapsed) {
       html += '<div class="kanban-column-body">';
-      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat] of doneRows) {
-        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat);
+      for (const [iid, title, desc, link, completed, recurring, status, dueDate, descriptionFormat, descriptionDirection] of doneRows) {
+        html += renderItem(iid, title, desc, link, completed, recurring, status, expandedItems.has(iid), sid, dueDate, descriptionFormat, descriptionDirection);
       }
       if (!doneRows.length) {
         html += '<div class="kanban-empty">Completed tasks land here</div>';
@@ -1456,7 +1456,7 @@ function renderMain() {
 
 /* ── Reference Item HTML ── */
 
-function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected, isEncrypted, descriptionFormat = 'plain') {
+function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isProtected, isEncrypted, descriptionFormat = 'plain', descriptionDirection = 'auto') {
   if (isItemLocked(iid, isProtected)) {
     return `
       <div class="item ref-item protected-item locked-item" data-item-id="${iid}">
@@ -1484,7 +1484,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
     detail = `
       <div class="item-detail">
         ${desc
-          ? renderDescription(desc, descriptionFormat)
+          ? renderDescription(desc, descriptionFormat, descriptionDirection)
           : (!sketchData ? '<div style="color:var(--text-muted);font-size:20px;margin-bottom:10px;">No description</div>' : '')}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
@@ -1511,7 +1511,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
               onclick="event.stopPropagation()" title="Drag to move item" aria-label="Drag to move item">&#9776;</span>
         <span class="ref-item-icon">${icon}</span>
         <div class="item-main">
-          <span class="item-title-text">${esc(title)}</span>
+          <span class="item-title-text" dir="auto">${esc(title)}</span>
           <div class="item-meta-row">
             <div class="item-indicators">${isEncrypted ? '<span title="AES-GCM encrypted">&#128272;</span>' : (isProtected ? '<span title="Password protected">&#128275;</span>' : '')}${hasSketch}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
@@ -1531,7 +1531,7 @@ function renderRefItem(iid, title, desc, link, isExpanded, sid, sketchData, isPr
 
 /* ── Single Item HTML ── */
 
-function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid, dueDate, descriptionFormat = 'plain') {
+function renderItem(iid, title, desc, link, completed, recurring, status, isExpanded, sid, dueDate, descriptionFormat = 'plain', descriptionDirection = 'auto') {
   const st = status || 0; // 0=todo, 1=in-progress, 2=done
   const statusCls  = st === 2 ? 'status-done' : st === 1 ? 'status-ip' : 'status-todo';
   const expandedCls  = isExpanded ? 'expanded' : '';
@@ -1606,7 +1606,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
     detail = `
       <div class="item-detail">
         ${desc
-          ? renderDescription(desc, descriptionFormat)
+          ? renderDescription(desc, descriptionFormat, descriptionDirection)
           : '<div style="color:var(--text-muted);font-size:17px;margin-bottom:10px;">No description</div>'}
         ${link
           ? `<div class="item-detail-link">&#128279; <a href="${escAttr(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`
@@ -1641,7 +1641,7 @@ function renderItem(iid, title, desc, link, completed, recurring, status, isExpa
               onclick="event.stopPropagation()" title="Drag to move item" aria-label="Drag to move item">&#9776;</span>
         <div class="item-checkbox ${checkboxCls}" onclick="toggleComplete(event, ${iid})">${checkboxContent}</div>
         <div class="item-main">
-          <span class="item-title-text">${esc(title)}</span>
+          <span class="item-title-text" dir="auto">${esc(title)}</span>
           <div class="item-meta-row">
             <div class="item-indicators">${dueBadge}${recurTimeBadge}${recurBadge}${followupBadge}${hasDesc}${hasLink}</div>
             <div class="item-quick-actions">
@@ -1673,7 +1673,7 @@ function renderFollowups(iid) {
       if (fid === editingFollowupId) {
         return `
       <div class="followup followup-editing">
-        <input type="text" class="followup-input followup-edit-input" value="${escAttr(text)}"
+        <input type="text" class="followup-input followup-edit-input" dir="auto" value="${escAttr(text)}"
                onkeydown="if(event.key==='Enter'){event.preventDefault();saveFollowupEdit(event, ${fid}, ${iid});}else if(event.key==='Escape'){cancelFollowupEdit(event);}">
         <button class="btn btn-ghost btn-sm" onclick="saveFollowupEdit(event, ${fid}, ${iid})">Save</button>
         <button class="btn btn-ghost btn-sm" onclick="cancelFollowupEdit(event)">Cancel</button>
@@ -1682,7 +1682,7 @@ function renderFollowups(iid) {
       return `
       <div class="followup ${completed ? 'followup-done' : ''}">
         <div class="followup-check" onclick="toggleFollowup(event, ${fid}, ${iid})">${completed ? '&#10003;' : ''}</div>
-        <span class="followup-text" ondblclick="startFollowupEdit(event, ${fid})">${esc(text)}</span>
+        <span class="followup-text" dir="auto" ondblclick="startFollowupEdit(event, ${fid})">${esc(text)}</span>
         <button class="followup-edit" title="Edit follow-up" onclick="startFollowupEdit(event, ${fid})">&#9998;</button>
         <button class="followup-del" title="Delete follow-up" onclick="deleteFollowup(event, ${fid})">&#10005;</button>
       </div>`;
@@ -1696,7 +1696,7 @@ function renderFollowups(iid) {
       <div class="followups-header">&#128257; Follow-ups</div>
       <div class="followups-list">${list}</div>
       <div class="followup-add">
-        <input type="text" class="followup-input" placeholder="Add a follow-up..."
+        <input type="text" class="followup-input" dir="auto" placeholder="Add a follow-up..."
                onkeydown="if(event.key==='Enter'){event.preventDefault();addFollowup(event, ${iid});}">
         <button class="btn btn-ghost btn-sm" onclick="addFollowup(event, ${iid})">Add</button>
       </div>
@@ -2047,7 +2047,7 @@ function renderSearchResults(term) {
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
            i.recurring, i.section_id, s.name, s.color, i.status, i.due_date,
-        s.type, i.protected, i.encrypted, i.sketch_data, i.description_format
+        s.type, i.protected, i.encrypted, i.sketch_data, i.description_format, i.description_direction
     FROM items i
     JOIN sections s ON i.section_id = s.id
     ORDER BY s.sort_order, i.sort_order
@@ -2086,7 +2086,7 @@ function renderSearchResults(term) {
   let currentSection = null;
 
   for (const [iid, title, desc, link, completed, recurring, secId, secName, secColor,
-    status, dueDate, sectionType, isProtected, isEncrypted, sketchData, descriptionFormat] of rows) {
+    status, dueDate, sectionType, isProtected, isEncrypted, sketchData, descriptionFormat, descriptionDirection] of rows) {
     if (secId !== currentSection) {
       currentSection = secId;
       html += `
@@ -2098,10 +2098,10 @@ function renderSearchResults(term) {
     }
     if (sectionType === 'reference') {
       html += renderRefItem(
-        iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected, isEncrypted, descriptionFormat
+        iid, title, desc, link, expandedItems.has(iid), secId, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection
       );
     } else {
-      html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate, descriptionFormat);
+      html += renderItem(iid, title, desc, link, completed, recurring, status || 0, expandedItems.has(iid), secId, dueDate, descriptionFormat, descriptionDirection);
     }
   }
 
@@ -2461,7 +2461,52 @@ function onDescriptionFormatChange() {
   input.placeholder = isMarkdown
     ? 'Write Markdown: **bold**, - lists, `code`...'
     : 'Details, notes, context...';
+  onDescriptionDirectionChange();
   setDescriptionEditorMode('write');
+}
+
+function onDescriptionDirectionChange() {
+  const direction = document.getElementById('itemDescDirection').value;
+  if (!isDescriptionDirection(direction)) {
+    toast('Choose a valid writing direction');
+    return;
+  }
+  document.getElementById('itemDesc').dir = direction;
+  document.getElementById('itemDescPreview').dir = direction;
+  updateDescriptionPreview();
+}
+
+function formatDescription(action) {
+  const input = document.getElementById('itemDesc');
+  if (document.getElementById('itemDescFormat').value !== 'markdown' || input.hidden) {
+    toast('Switch to Markdown Write mode to use formatting.');
+    return;
+  }
+  if (descriptionImagePastePending || itemSaveInProgress) {
+    toast('An image paste or save is still in progress. Please wait.');
+    return;
+  }
+  try {
+    const edit = getDescriptionFormattingEdit(input.value, input.selectionStart, input.selectionEnd, action);
+    const selectionDirection = input.selectionDirection;
+    input.focus();
+    input.setSelectionRange(edit.start, edit.end);
+    insertDescriptionText(input, edit.text);
+    input.setSelectionRange(edit.selectionStart, edit.selectionEnd, selectionDirection);
+  } catch (error) {
+    console.error('Description formatting failed', error);
+    toast('Could not format description: ' + error.message);
+  }
+}
+
+function onDescriptionKeydown(event) {
+  if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || event.isComposing ||
+      event.currentTarget.hidden || document.getElementById('itemDescFormat').value !== 'markdown') return;
+  const action = { b: 'bold', i: 'italic', k: 'link' }[event.key.toLowerCase()];
+  if (!action) return;
+  event.preventDefault();
+  event.stopPropagation();
+  formatDescription(action);
 }
 
 function onDescriptionPaste(event) {
@@ -2534,6 +2579,8 @@ function setDescriptionEditorMode(mode) {
   document.getElementById('itemDescPreview').hidden = !preview;
   document.getElementById('descriptionWrite').setAttribute('aria-pressed', String(!preview));
   document.getElementById('descriptionPreview').setAttribute('aria-pressed', String(preview));
+  document.getElementById('descriptionToolbar').hidden = preview ||
+    document.getElementById('itemDescFormat').value !== 'markdown';
   if (preview) {
     updateDescriptionPreview();
   } else {
@@ -2545,8 +2592,9 @@ function updateDescriptionPreview() {
   const preview = document.getElementById('itemDescPreview');
   if (preview.hidden) return;
   const source = document.getElementById('itemDesc').value;
+  const direction = document.getElementById('itemDescDirection').value;
   preview.innerHTML = source.trim()
-    ? renderDescriptionContent(source, 'markdown')
+    ? renderDescriptionContent(source, 'markdown', direction)
     : '<span class="description-preview-empty">Nothing to preview yet.</span>';
 }
 
@@ -2556,8 +2604,13 @@ function readItemDescription() {
     toast('Choose a valid description format');
     return null;
   }
+  const direction = document.getElementById('itemDescDirection').value;
+  if (!isDescriptionDirection(direction)) {
+    toast('Choose a valid writing direction');
+    return null;
+  }
   const source = document.getElementById('itemDesc').value;
-  return { format, source: format === 'markdown' ? source : source.trim() };
+  return { format, direction, source: format === 'markdown' ? source : source.trim() };
 }
 
 function openItemModal(sectionId, editId) {
@@ -2574,6 +2627,7 @@ function openItemModal(sectionId, editId) {
   const titleInput = document.getElementById('itemTitle');
   const descInput  = document.getElementById('itemDesc');
   const formatInput = document.getElementById('itemDescFormat');
+  const directionInput = document.getElementById('itemDescDirection');
   const linkInput  = document.getElementById('itemLink');
   const editInput  = document.getElementById('editItemId');
   const secInput   = document.getElementById('itemSectionId');
@@ -2603,7 +2657,7 @@ function openItemModal(sectionId, editId) {
     const row = db.exec(`
       SELECT title, description, link, recurring, sketch_data, due_date,
              recurring_days, recurring_time, protected, password_hash, password_salt,
-             password_iterations, description_format
+             password_iterations, description_format, description_direction
       FROM items WHERE id = ?`, [editId]);
     if (row.length) {
       const protection = getItemProtection(editId);
@@ -2613,6 +2667,7 @@ function openItemModal(sectionId, editId) {
       titleInput.value = decrypted ? decrypted.title || '' : row[0].values[0][0] || '';
       descInput.value  = decrypted ? decrypted.description || '' : row[0].values[0][1] || '';
       formatInput.value = row[0].values[0][12];
+      directionInput.value = row[0].values[0][13];
       linkInput.value  = decrypted ? decrypted.link || '' : row[0].values[0][2] || '';
       document.getElementById('itemRecurring').value = row[0].values[0][3] || 0;
 
@@ -2666,6 +2721,7 @@ function openItemModal(sectionId, editId) {
     titleInput.value = '';
     descInput.value  = '';
     formatInput.value = 'plain';
+    directionInput.value = 'auto';
     linkInput.value  = '';
     editInput.value  = '';
     document.getElementById('itemRecurring').value = 0;
@@ -2773,6 +2829,7 @@ async function saveItemOnce() {
   if (!description) return;
   const desc = description.source;
   const descriptionFormat = description.format;
+  const descriptionDirection = description.direction;
   const link      = document.getElementById('itemLink').value.trim();
   const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
   const editId    = document.getElementById('editItemId').value;
@@ -2822,23 +2879,23 @@ async function saveItemOnce() {
 
   if (editId) {
     db.run(`UPDATE items
-            SET title = ?, description = ?, description_format = ?, link = ?, recurring = ?, sketch_data = ?,
+            SET title = ?, description = ?, description_format = ?, description_direction = ?, link = ?, recurring = ?, sketch_data = ?,
                 due_date = ?, recurring_days = ?, recurring_time = ?, protected = ?,
                 password_hash = ?, password_salt = ?, password_iterations = ?,
                 encrypted = ?, encrypted_data = ?, encryption_iv = ?, encryption_version = ?
             WHERE id = ?`,
-      [storedTitle, storedDescription, descriptionFormat, storedLink, recurring, storedSketch, dueDate, recurringDays, recurringTime,
+      [storedTitle, storedDescription, descriptionFormat, descriptionDirection, storedLink, recurring, storedSketch, dueDate, recurringDays, recurringTime,
        protection.isProtected, protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
        encryption.isEncrypted, encryption.encryptedData, encryption.encryptionIv,
        encryption.encryptionVersion, parseInt(editId)]);
   } else {
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
     db.run(`INSERT INTO items
-            (section_id, title, description, description_format, link, recurring, sort_order, sketch_data,
+            (section_id, title, description, description_format, description_direction, link, recurring, sort_order, sketch_data,
              due_date, recurring_days, recurring_time, protected, password_hash, password_salt,
              password_iterations, encrypted, encrypted_data, encryption_iv, encryption_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sectionId, storedTitle, storedDescription, descriptionFormat, storedLink, recurring,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sectionId, storedTitle, storedDescription, descriptionFormat, descriptionDirection, storedLink, recurring,
        maxOrder[0].values[0][0] + 1, storedSketch,
        dueDate, recurringDays, recurringTime, protection.isProtected,
        protection.passwordHash, protection.passwordSalt, protection.passwordIterations,
@@ -2968,7 +3025,7 @@ function importData(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.sections || !data.items) throw new Error('Invalid format');
-      validateDescriptionFormats(data.items);
+      validateDescriptionMetadata(data.items);
       if (!confirm('This will replace ALL current data. Continue?')) return;
 
       await createBackup('pre-import', { silent: true, force: true });
@@ -3039,6 +3096,7 @@ function importData(event) {
    ================================================================ */
 
 function openSettingsModal() {
+  document.getElementById('appTheme').value = getAppTheme();
   const enabled = localStorage.getItem('dashora_autodelete_enabled') === 'true';
   const days = localStorage.getItem('dashora_autodelete_days') || '7';
   const notifEnabled = localStorage.getItem('dashora_notifications') === 'true';
@@ -3190,6 +3248,13 @@ async function removeGlobalPassword() {
 }
 
 function saveSettings() {
+  try {
+    setAppTheme(document.getElementById('appTheme').value);
+  } catch (error) {
+    console.error('Could not save theme preference', error);
+    toast('Could not save theme: ' + error.message);
+    return;
+  }
   const enabled = document.getElementById('autoDeleteEnabled').checked;
   const days = document.getElementById('autoDeleteDays').value;
   const notifEnabled = document.getElementById('notificationsEnabled').checked;
@@ -3256,7 +3321,8 @@ document.addEventListener('keydown', (e) => {
     document.getElementById('searchBox').focus();
   }
   // Ctrl+Z for sketch undo when sketch canvas is active in item modal
-  if (e.ctrlKey && e.key === 'z' && sketchActive && document.getElementById('itemModal').classList.contains('active')) {
+  if (e.ctrlKey && e.key === 'z' && sketchActive && document.getElementById('itemModal').classList.contains('active') &&
+      !e.target.matches('input, textarea, select, [contenteditable="true"]')) {
     e.preventDefault();
     sketchUndo();
   }
@@ -3291,6 +3357,7 @@ function silentSaveItem() {
   if (!description) return false;
   const desc = description.source;
   const descriptionFormat = description.format;
+  const descriptionDirection = description.direction;
   const link      = document.getElementById('itemLink').value.trim();
   const recurring = parseInt(document.getElementById('itemRecurring').value) || 0;
   const dueDate   = document.getElementById('itemDueDate').value || null;
@@ -3314,13 +3381,13 @@ function silentSaveItem() {
   let editId = document.getElementById('editItemId').value;
 
   if (editId) {
-    db.run('UPDATE items SET title = ?, description = ?, description_format = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
-      [title, desc, descriptionFormat, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
+    db.run('UPDATE items SET title = ?, description = ?, description_format = ?, description_direction = ?, link = ?, recurring = ?, sketch_data = ?, due_date = ?, recurring_days = ?, recurring_time = ? WHERE id = ?',
+      [title, desc, descriptionFormat, descriptionDirection, link, recurring, sketchDataURL, dueDate, recurringDays, recurringTime, parseInt(editId)]);
   } else {
     // Create the item for the first time
     const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM items WHERE section_id = ?', [sectionId]);
-    db.run('INSERT INTO items (section_id, title, description, description_format, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [sectionId, title, desc, descriptionFormat, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
+    db.run('INSERT INTO items (section_id, title, description, description_format, description_direction, link, recurring, sort_order, sketch_data, due_date, recurring_days, recurring_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sectionId, title, desc, descriptionFormat, descriptionDirection, link, recurring, maxOrder[0].values[0][0] + 1, sketchDataURL, dueDate, recurringDays, recurringTime]);
     const newId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
     document.getElementById('editItemId').value = newId;
   }
@@ -3354,7 +3421,8 @@ document.getElementById('itemModal').addEventListener('change', markItemEditorCh
 });
 document.getElementById('itemDesc').addEventListener('input', updateDescriptionPreview);
 document.getElementById('itemDesc').addEventListener('paste', onDescriptionPaste);
-['itemRecurring', 'itemDueDate', 'itemDescFormat'].forEach(id => {
+document.getElementById('itemDesc').addEventListener('keydown', onDescriptionKeydown);
+['itemRecurring', 'itemDueDate', 'itemDescFormat', 'itemDescDirection'].forEach(id => {
   document.getElementById(id).addEventListener('change', scheduleAutoSave);
 });
 

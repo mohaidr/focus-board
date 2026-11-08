@@ -1,10 +1,11 @@
-const CACHE_VERSION = 34;
+const CACHE_VERSION = 39;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './css/style.css',
+  './js/theme.js',
   './js/db.js',
   './js/markdown.js',
   './js/share.js',
@@ -12,6 +13,7 @@ const ASSETS = [
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  'https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Noto+Kufi+Arabic:wght@400;700&family=Patrick+Hand&family=Satisfy&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js',
   'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm',
   'https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js',

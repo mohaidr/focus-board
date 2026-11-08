@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'share.js'), 'utf8');
+const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const baseUrl = 'https://example.com/index.html';
 
 function setup() {
@@ -15,6 +16,7 @@ function setup() {
     bytesToBase64: bytes => Buffer.from(bytes).toString('base64'),
     base64ToBytes: value => Uint8Array.from(atob(value), char => char.charCodeAt(0)),
   });
+  vm.runInContext(markdown, context);
   vm.runInContext(source, context);
   return { context, alerts };
 }
@@ -24,6 +26,7 @@ function fixture() {
     title: 'Sharing \u{1F9E9} \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u4e2d\u6587',
     description: '    indented code\n\n## Heading\n\n**bold**  \nnext line\n',
     descriptionFormat: 'markdown',
+    descriptionDirection: 'auto',
     link: 'https://example.com/docs?q=a%20b#part',
     boardType: 'task',
     status: 1,
@@ -68,6 +71,23 @@ test('embedded description images survive share encoding and decoding', () => {
   const { context } = setup();
   const item = { ...fixture(), description: '![Pasted image](data:image/png;base64,aGVsbG8=)' };
   assert.deepEqual(JSON.parse(JSON.stringify(context.decodeItemShareUrl(context.encodeItemShareUrl(item)))), item);
+});
+
+for (const direction of ['auto', 'ltr', 'rtl']) {
+  test(direction + ' writing direction survives sharing without modifying Markdown', () => {
+    const { context } = setup();
+    const item = { ...fixture(), descriptionDirection: direction };
+    assert.deepEqual(JSON.parse(JSON.stringify(context.decodeItemShareUrl(context.encodeItemShareUrl(item)))), item);
+  });
+}
+
+test('older shared links without writing direction default to automatic', () => {
+  const { context } = setup();
+  const item = fixture();
+  delete item.descriptionDirection;
+  const decoded = context.decodeItemShareUrl(encodedPayload({ version: 1, item }));
+  assert.equal(decoded.descriptionDirection, 'auto');
+  assert.equal(decoded.description, item.description);
 });
 
 test('existing query parameters are preserved and old fragments are replaced', () => {
@@ -145,6 +165,9 @@ for (const [name, change] of [
   ['data links', { link: 'data:text/html,<script>alert(1)</script>' }],
   ['SVG sketches', { sketchData: 'data:image/svg+xml,<svg onload=alert(1)></svg>' }],
   ['unknown description format', { descriptionFormat: 'html' }],
+  ['unknown description direction', { descriptionDirection: 'sideways' }],
+  ['null description direction', { descriptionDirection: null }],
+  ['HTML in description direction', { descriptionDirection: 'rtl" onclick="alert(1)' }],
   ['unknown board type', { boardType: 'invalid' }],
   ['invalid status', { status: 9 }],
   ['invalid schedule', { recurring: 6 }],

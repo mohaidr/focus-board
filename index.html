@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a2030">
+<meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Dashora">
@@ -11,9 +12,10 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Dashora</title>
+<script src="js/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Patrick+Hand&family=Satisfy&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Noto+Kufi+Arabic:wght@400;700&family=Patrick+Hand&family=Satisfy&display=swap" rel="stylesheet" crossorigin="anonymous">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -111,17 +113,27 @@
     <input type="hidden" id="itemSectionId">
     <div class="form-group">
       <label>Title</label>
-      <input type="text" id="itemTitle" placeholder="What needs attention?"
+      <input type="text" id="itemTitle" dir="auto" placeholder="What needs attention?"
              onkeydown="if(event.key==='Enter')saveItem()">
     </div>
     <div class="form-group">
       <label for="itemDesc">Description</label>
       <div class="description-controls">
-        <label for="itemDescFormat">Format</label>
-        <select id="itemDescFormat" class="form-select" onchange="onDescriptionFormatChange()">
-          <option value="plain">Plain text</option>
-          <option value="markdown">Markdown</option>
-        </select>
+        <div class="description-option">
+          <label for="itemDescFormat">Format</label>
+          <select id="itemDescFormat" class="form-select" onchange="onDescriptionFormatChange()">
+            <option value="plain">Plain text</option>
+            <option value="markdown">Markdown</option>
+          </select>
+        </div>
+        <div class="description-option">
+          <label for="itemDescDirection">Direction</label>
+          <select id="itemDescDirection" class="form-select" onchange="onDescriptionDirectionChange()">
+            <option value="auto">Auto</option>
+            <option value="ltr">Left to right</option>
+            <option value="rtl">Right to left</option>
+          </select>
+        </div>
         <div class="description-views" id="descriptionViews" role="group" aria-label="Description view" hidden>
           <button type="button" class="btn btn-ghost btn-sm" id="descriptionWrite" aria-pressed="true"
                   aria-controls="itemDesc" onclick="setDescriptionEditorMode('write')">Write</button>
@@ -129,9 +141,23 @@
                   aria-controls="itemDescPreview" onclick="setDescriptionEditorMode('preview')">Preview</button>
         </div>
       </div>
-      <textarea id="itemDesc" placeholder="Details, notes, context..." aria-describedby="itemDescHint"></textarea>
-      <div id="itemDescPreview" class="item-detail-desc markdown-content description-preview" aria-live="polite" hidden></div>
-      <div id="itemDescHint" class="form-hint no-indent" hidden>Supports headings, **bold**, *italic*, lists, links, tables, and fenced code blocks. Paste screenshots or copied PNG, JPEG, GIF, and WebP images to embed them locally. Pasted formatted text is converted to Markdown; Ctrl+Shift+V pastes plain text. Typed HTML is shown as text.</div>
+      <div id="descriptionToolbar" class="description-toolbar" role="group" aria-label="Markdown formatting" hidden
+           onmousedown="if(event.target.closest('button'))event.preventDefault()">
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Bold" title="Bold (Ctrl/Cmd+B)" onclick="formatDescription('bold')"><strong>B</strong></button>
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Italic" title="Italic (Ctrl/Cmd+I)" onclick="formatDescription('italic')"><em>I</em></button>
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Strikethrough" title="Strikethrough" onclick="formatDescription('strike')"><s>S</s></button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Heading" onclick="formatDescription('heading')">Heading</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Bulleted list" onclick="formatDescription('bullet')">Bullets</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Numbered list" onclick="formatDescription('numbered')">Numbered</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Checklist" onclick="formatDescription('checklist')">Checklist</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Block quote" onclick="formatDescription('quote')">Quote</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Inline code" onclick="formatDescription('code')">Code</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Fenced code block" onclick="formatDescription('code-block')">Code block</button>
+        <button type="button" class="btn btn-ghost btn-sm" title="Link (Ctrl/Cmd+K)" onclick="formatDescription('link')">Link</button>
+      </div>
+      <textarea id="itemDesc" dir="auto" placeholder="Details, notes, context..." aria-describedby="itemDescHint"></textarea>
+      <div id="itemDescPreview" class="item-detail-desc markdown-content description-preview" dir="auto" aria-live="polite" hidden></div>
+      <div id="itemDescHint" class="form-hint no-indent" hidden>Select text or place the cursor, then use the formatting buttons. Ctrl/Cmd+B: bold; Ctrl/Cmd+I: italic; Ctrl/Cmd+K: link. Supports headings, lists, links, tables, and fenced code blocks. Paste screenshots or copied PNG, JPEG, GIF, and WebP images to embed them locally. Pasted formatted text is converted to Markdown; Ctrl+Shift+V pastes plain text. Typed HTML is shown as text.</div>
     </div>
     <div class="form-group">
       <label>Link (optional)</label>
@@ -228,6 +254,14 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h2>Settings</h2>
+    <div class="form-group">
+      <label for="appTheme">Theme</label>
+      <select id="appTheme" class="form-select">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+      <div class="form-hint no-indent">Choose a light or dark appearance. Saved on this browser.</div>
+    </div>
     <div class="form-group form-group-inline">
       <label class="toggle-label">
         <input type="checkbox" id="autoSaveEnabled">
@@ -350,7 +384,7 @@
 <!-- Shared Item Viewer -->
 <div class="modal-overlay" id="sharedItemModal" role="dialog" aria-modal="true" aria-labelledby="sharedItemTitle">
   <div class="modal shared-item-modal">
-    <h2 id="sharedItemTitle">Shared item</h2>
+    <h2 id="sharedItemTitle" dir="auto">Shared item</h2>
     <p class="share-notice">This is a read-only snapshot from the URL. It is not added to your boards unless you save a copy.</p>
     <div class="form-error" id="sharedItemError" role="alert"></div>
     <div id="sharedItemContent"></div>
@@ -378,7 +412,7 @@
 <dialog id="itemFullscreen" class="item-fullscreen" aria-labelledby="itemFullscreenTitle"
         oncancel="event.preventDefault();closeItemFullscreen()">
   <header class="item-fullscreen-header">
-    <h2 id="itemFullscreenTitle"></h2>
+    <h2 id="itemFullscreenTitle" dir="auto"></h2>
     <button type="button" class="btn btn-ghost" id="itemFullscreenClose" autofocus
             onclick="closeItemFullscreen()" aria-label="Close full-screen view">Close &#10005;</button>
   </header>

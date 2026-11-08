@@ -27,6 +27,22 @@ It is not a medical product, but it is intentionally designed to support focus, 
 
 ## Feature Tour
 
+### Appearance
+
+Open **Settings**, choose **Theme → Light** or **Theme → Dark**, then **Save**.
+Dark remains the default. Your choice is saved in this browser, applied before
+the page is drawn, and synchronized with other open Dashora tabs.
+
+Light uses a softer warm-gray palette rather than bright white panels.
+Arabic and automatically detected RTL text use **Noto Kufi Arabic** from Google
+Fonts, with system fallbacks; Latin UI fonts and rendered monospace code are
+preserved. Follow-up inputs and text also detect writing direction automatically.
+
+Both themes cover boards, the dashboard, dialogs, Markdown/RTL editing and
+previews, reminders, and native date/time controls. Sketch canvases keep their
+original dark background so saved drawing colors remain readable; embedded
+images and stored item content are not recolored or modified.
+
 ### Boards and Navigation
 
 - Task boards and reference boards
@@ -95,6 +111,11 @@ In the item editor, change the description **Format** from **Plain text** to **M
 Use **Write** to edit the source and **Preview** to see the formatted result before saving.
 Expand the saved item to see its formatted description on task boards, reference boards, and in search results.
 
+- In Markdown **Write** mode, use the toolbar for bold, italic, strikethrough, headings, bulleted/numbered lists, checklists, quotes, inline code, code blocks, and links. Inline formatting applies to selected text; block formatting applies to the selected lines or the current line. With no text selected, placeholders are selected for you to replace
+- **Ctrl+B/Cmd+B**, **Ctrl+I/Cmd+I**, and **Ctrl+K/Cmd+K** format the description while it has focus. The Link button inserts a Markdown link and selects its example URL for replacement. Ctrl+K outside the Markdown editor still opens search
+- Formatting edits Markdown source directly, without converting the editor to HTML. Native undo/redo is preserved in browsers supporting undo-aware text insertion. Emphasis buttons guard fenced code and whole table rows; use a code block for multiline code
+- **Direction** supports **Auto**, **Left to right**, and **Right to left** in both plain text and Markdown. Auto detects Arabic/Hebrew and English, including individual Markdown paragraphs. The choice is saved with the item and preserved in previews, board/search details, the full-screen reader, share links, exports, and backups. Older items and shared links default to Auto
+- RTL lists, quotes, and tables use direction-aware layout. Code spans and blocks remain left-to-right; changing direction never adds direction markers or HTML to saved Markdown. Titles also detect their writing direction automatically
 - Existing items, older imports/backups, and new items default to plain text until Markdown is selected
 - Titles always remain plain text
 - Supports headings, bold/italic, lists, links, images, quotes, tables, strikethrough, and code blocks
@@ -294,6 +315,18 @@ Run editor close, discard confirmation, and save-failure tests:
 
 ```powershell
 node --test tests\editor-close.test.js
+```
+
+Run Markdown formatting, keyboard, writing-direction, and persistence regression tests:
+
+```powershell
+node --test tests\editor-formatting.test.js tests\description-direction.test.js
+```
+
+Run theme preference, settings, startup, and light-palette contrast tests:
+
+```powershell
+node --test tests\theme.test.js
 ```
 
 ## License
