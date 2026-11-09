@@ -126,6 +126,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
   elements.itemDesc.classList.toggle = () => {};
   const context = vm.createContext({
     document: { getElementById: id => elements[id] },
+    localStorage: { getItem: () => null, setItem: () => {} },
     db: {
       exec: sql => [{ values: [[sql.includes('SELECT type') ? 'reference' : 10]] }],
       run: (sql, params) => {
@@ -270,7 +271,7 @@ test('task, reference, and shared/full-screen readers forward direction to the c
   vm.runInContext(app.slice(app.indexOf('function renderRefItem('),
     app.indexOf('function renderFollowups(')), context);
   vm.runInContext(share.slice(share.indexOf('function renderSharedItemContent('),
-    share.indexOf('function openSharedItemFromUrl(')), context);
+    share.indexOf('async function openSharedItemFromUrl(')), context);
   context.renderItem(7, 'Title', original, '', 0, 0, 0, true, 1, null, 'markdown', 'rtl');
   context.renderRefItem(7, 'Title', original, '', true, 1, null, 0, 0, 'markdown', 'rtl');
   context.renderSharedItemContent({ boardType: 'reference', description: original,

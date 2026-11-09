@@ -328,6 +328,7 @@ async function initDB() {
 
   // Auto-delete old completed tasks if enabled
   autoDeleteCompletedTasks();
+  pruneItemViews((db.exec('SELECT id FROM items')[0]?.values || []).map(([id]) => id));
 
   // Keep one backup per day (retention managed in app.js)
   if (typeof ensureDailyBackup === 'function') {
@@ -369,6 +370,7 @@ async function initDB() {
     if (lastReset !== todayStr) {
       resetRecurringTasks();
       autoDeleteCompletedTasks();
+      pruneItemViews((db.exec('SELECT id FROM items')[0]?.values || []).map(([id]) => id));
       persist();
       renderSidebar();
       renderMain();

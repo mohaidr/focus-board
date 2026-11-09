@@ -310,11 +310,123 @@ function renderDescription(source, format = 'plain', direction = 'auto') {
   return `<div class="item-detail-desc${markdownClass}" dir="${validDirection}">${renderDescriptionContent(source, format, direction)}</div>`;
 }
 
-const collapsedDescriptions = new Set();
+let savedExpansionState = null;
 
-function renderCollapsibleDescription(source, format = 'plain', direction = 'auto', itemId = null) {
-  const open = itemId === null || !collapsedDescriptions.has(itemId);
-  const state = itemId === null ? '' : ` data-description-item-id="${escAttr(String(itemId))}" ontoggle="onDescriptionToggle(this)"`;
+function reportExpansionError(message, error) {
+  console.error(message, error);
+  const notify = () => toast(message);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', notify, { once: true });
+  } else {
+    notify();
+  }
+}
+
+function isExpansionKey(key) {
+  if (typeof key !== 'string') return false;
+  return /^share:[a-f0-9]{64}$/.test(key) ||
+    (/^item:[1-9]\d*$/.test(key) && Number.isSafeInteger(Number(key.slice(5))));
+}
+
+function getItemViewKey(itemId) {
+  if (!Number.isSafeInteger(itemId) || itemId < 1) throw new Error('Invalid item view identifier');
+  return 'item:' + itemId;
+}
+
+function getExpansionStates() {
+  if (savedExpansionState !== null) return savedExpansionState;
+  savedExpansionState = {};
+  try {
+    const raw = localStorage.getItem('dashora_expansion_state');
+    if (raw === null) return savedExpansionState;
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== 1 || !parsed.states || typeof parsed.states !== 'object' || Array.isArray(parsed.states)) {
+      throw new Error('Unsupported expansion preferences');
+    }
+    for (const [key, state] of Object.entries(parsed.states)) {
+      if (!isExpansionKey(key) || !state || typeof state !== 'object' || Array.isArray(state) ||
+          (state.item !== undefined && typeof state.item !== 'boolean') ||
+          (state.description !== undefined && typeof state.description !== 'boolean') ||
+          (state.notes !== undefined && (!Array.isArray(state.notes) || state.notes.some(open => typeof open !== 'boolean')))) {
+        throw new Error('Invalid expansion preferences');
+      }
+    }
+    savedExpansionState = parsed.states;
+  } catch (error) {
+    reportExpansionError('Could not load open/closed preferences. Using the default view.', error);
+  }
+  return savedExpansionState;
+}
+
+function persistExpansionStates() {
+  try {
+    localStorage.setItem('dashora_expansion_state', JSON.stringify({ version: 1, states: getExpansionStates() }));
+  } catch (error) {
+    reportExpansionError('Could not save open/closed preferences. This view will only be remembered until reload.', error);
+  }
+}
+
+function getExpansionState(key) {
+  if (key === null) return {};
+  if (!isExpansionKey(key)) throw new Error('Invalid expansion preference identifier');
+  return getExpansionStates()[key] || {};
+}
+
+function setExpansionValue(key, field, value) {
+  if (key === null) return;
+  const state = getExpansionState(key);
+  if (JSON.stringify(state[field]) === JSON.stringify(value)) return;
+  getExpansionStates()[key] = { ...state, [field]: value };
+  persistExpansionStates();
+}
+
+function readExpandedItemIds() {
+  return Object.entries(getExpansionStates())
+    .filter(([key, state]) => key.startsWith('item:') && state.item === true)
+    .map(([key]) => Number(key.slice(5)));
+}
+
+function rememberItemExpanded(itemId, open) {
+  if (open) expandedItems.add(itemId);
+  else expandedItems.delete(itemId);
+  setExpansionValue(getItemViewKey(itemId), 'item', open);
+}
+
+function forgetItemViews(itemIds = null) {
+  const states = getExpansionStates();
+  const keys = itemIds === null ? Object.keys(states).filter(key => key.startsWith('item:')) : itemIds.map(getItemViewKey);
+  let changed = false;
+  for (const key of keys) {
+    expandedItems.delete(Number(key.slice(5)));
+    if (Object.hasOwn(states, key)) { delete states[key]; changed = true; }
+  }
+  if (changed) persistExpansionStates();
+}
+
+function pruneItemViews(itemIds) {
+  const existing = new Set(itemIds);
+  const missing = Object.keys(getExpansionStates()).filter(key => key.startsWith('item:'))
+    .map(key => Number(key.slice(5))).filter(id => !existing.has(id));
+  forgetItemViews(missing);
+}
+
+function getNoteOpenStates(key, count) {
+  const saved = getExpansionState(key).notes || [];
+  return Array.from({ length: count }, (_, index) => saved[index] !== false);
+}
+
+function remapNoteViews(itemId, count, from, to = null) {
+  const key = getItemViewKey(itemId);
+  const states = getNoteOpenStates(key, count);
+  const [open] = states.splice(from, 1);
+  if (to !== null) states.splice(to, 0, open);
+  setExpansionValue(key, 'notes', states);
+}
+
+function renderCollapsibleDescription(source, format = 'plain', direction = 'auto', itemId = null,
+  viewKey = itemId === null ? null : getItemViewKey(itemId)) {
+  const open = getExpansionState(viewKey).description !== false;
+  const state = viewKey === null ? '' : ` data-view-key="${escAttr(viewKey)}" ontoggle="onDescriptionToggle(this)"`;
   return `<details class="item-description"${open ? ' open' : ''}${state}>
     <summary><span class="item-description-title">Description</span></summary>
     ${renderDescription(source, format, direction)}
@@ -322,12 +434,54 @@ function renderCollapsibleDescription(source, format = 'plain', direction = 'aut
 }
 
 function onDescriptionToggle(element) {
-  const itemId = Number(element.dataset.descriptionItemId);
-  if (element.open) collapsedDescriptions.delete(itemId);
-  else collapsedDescriptions.add(itemId);
-  document.querySelectorAll(`.item-description[data-description-item-id="${itemId}"]`).forEach(description => {
+  if (element.isConnected === false) return;
+  const key = element.dataset.viewKey;
+  setExpansionValue(key, 'description', element.open);
+  document.querySelectorAll(`.item-description[data-view-key="${key}"]`).forEach(description => {
     if (description !== element && description.open !== element.open) description.open = element.open;
   });
+}
+
+function updateNotesCollapseButton(section) {
+  const button = section.querySelector('.notes-collapse-all');
+  if (!button) return;
+  const anyOpen = Array.from(section.querySelectorAll(':scope > .item-note')).some(note => note.open);
+  button.textContent = anyOpen ? 'Collapse all' : 'Expand all';
+  button.setAttribute('aria-label', anyOpen ? 'Collapse all notes' : 'Expand all notes');
+}
+
+function syncNoteViews(key) {
+  document.querySelectorAll(`.item-notes[data-view-key="${key}"]`).forEach(section => {
+    const cards = section.querySelectorAll(':scope > .item-note');
+    const states = getNoteOpenStates(key, cards.length);
+    cards.forEach((card, index) => { if (card.open !== states[index]) card.open = states[index]; });
+    updateNotesCollapseButton(section);
+  });
+}
+
+function onItemNoteToggle(element) {
+  if (element.isConnected === false) return;
+  const key = element.dataset.viewKey;
+  const index = Number(element.dataset.noteIndex);
+  const section = element.closest('.item-notes');
+  const states = getNoteOpenStates(key, section.querySelectorAll(':scope > .item-note').length);
+  states[index] = element.open;
+  setExpansionValue(key, 'notes', states);
+  syncNoteViews(key);
+}
+
+function toggleAllNotes(button) {
+  const section = button.closest('.item-notes');
+  const cards = section.querySelectorAll(':scope > .item-note');
+  const open = !Array.from(cards).some(note => note.open);
+  const key = section.dataset.viewKey;
+  if (key) {
+    setExpansionValue(key, 'notes', Array(cards.length).fill(open));
+    syncNoteViews(key);
+  } else {
+    cards.forEach(card => { card.open = open; });
+    updateNotesCollapseButton(section);
+  }
 }
 
 function validateItemNotes(notes = []) {
@@ -363,7 +517,7 @@ function itemNotesMatch(notes, term) {
     note.description.toLowerCase().includes(term));
 }
 
-function renderItemNotes(notes = [], itemId = null) {
+function renderItemNotes(notes = [], itemId = null, viewKey = itemId === null ? null : getItemViewKey(itemId)) {
   let entries;
   try {
     entries = validateItemNotes(notes);
@@ -372,10 +526,15 @@ function renderItemNotes(notes = [], itemId = null) {
     return `<div class="description-render-error" role="alert">Could not display notes: ${esc(error.message)}</div>`;
   }
   if (!entries.length && itemId === null) return '';
-  return `<section class="item-notes" aria-label="Notes">
-    ${entries.length ? '<h3 class="item-notes-heading">Notes</h3>' : ''}
+  const states = getNoteOpenStates(viewKey, entries.length);
+  const anyOpen = states.some(Boolean);
+  return `<section class="item-notes" aria-label="Notes"${viewKey === null ? '' : ` data-view-key="${escAttr(viewKey)}"`}>
+    ${entries.length ? `<div class="item-notes-header"><h3 class="item-notes-heading">Notes</h3>
+      ${entries.length > 1 ? `<button type="button" class="btn btn-ghost btn-sm notes-collapse-all"
+        aria-label="${anyOpen ? 'Collapse' : 'Expand'} all notes" onclick="toggleAllNotes(this)">${anyOpen ? 'Collapse' : 'Expand'} all</button>` : ''}
+    </div>` : ''}
     ${entries.map((note, index) => `
-      <details class="item-note" open${itemId === null ? '' : ` data-note-item-id="${escAttr(String(itemId))}" data-note-index="${index}"
+      <details class="item-note"${states[index] ? ' open' : ''}${viewKey === null ? '' : ` data-view-key="${escAttr(viewKey)}" data-note-index="${index}" ontoggle="onItemNoteToggle(this)"`}${itemId === null ? '' : ` data-note-item-id="${escAttr(String(itemId))}"
         ondragover="onNoteDragOver(event, ${itemId}, ${index})" ondragleave="onNoteDragLeave(event)"
         ondrop="onNoteDrop(event, ${itemId}, ${index})"`}>
         <summary>

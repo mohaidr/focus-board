@@ -2,6 +2,7 @@ const SHARED_ITEM_VERSION = 1;
 const SHARE_URL_WARNING_BYTES = 2048;
 let sharedItemContent = null;
 let sharedItemSaving = false;
+let sharedItemSession = 0;
 
 function validateSharedItem(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -160,7 +161,7 @@ function closeShareModal() {
   closeModal('shareItemModal');
 }
 
-function renderSharedItemContent(item, itemId = null) {
+function renderSharedItemContent(item, itemId = null, viewKey = itemId === null ? null : getItemViewKey(itemId)) {
   const metadata = [item.boardType === 'task' ? 'Task item' : 'Reference item'];
   if (item.boardType === 'task') metadata.push(['To Do', 'In Progress', 'Done'][item.status]);
   if (item.dueDate) metadata.push('Due: ' + formatDueDate(item.dueDate));
@@ -180,14 +181,15 @@ function renderSharedItemContent(item, itemId = null) {
     : '';
   return `
     <div class="shared-item-meta">${metadata.map(text => `<span>${esc(text)}</span>`).join('')}</div>
-    ${item.description ? renderCollapsibleDescription(item.description, item.descriptionFormat, item.descriptionDirection, itemId) : ''}
-    ${renderItemNotes(item.notes)}
+    ${item.description ? renderCollapsibleDescription(item.description, item.descriptionFormat, item.descriptionDirection, itemId, viewKey) : ''}
+    ${renderItemNotes(item.notes, null, viewKey)}
     ${item.link ? `<div class="item-detail-link"><a href="${escAttr(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a></div>` : ''}
     ${item.sketchData ? `<div class="sketch-preview-large"><img src="${escAttr(item.sketchData)}" alt="Shared sketch"></div>` : ''}
     ${followups}`;
 }
 
-function openSharedItemFromUrl() {
+async function openSharedItemFromUrl() {
+  const session = ++sharedItemSession;
   closeShareModal();
   document.getElementById('sharedItemContent').replaceChildren();
   document.getElementById('sharedItemError').textContent = '';
@@ -196,9 +198,15 @@ function openSharedItemFromUrl() {
   document.getElementById('sharedItemBoardName').value = 'Shared items';
   sharedItemContent = null;
   let item;
+  let viewKey;
   try {
     item = decodeItemShareUrl();
+    if (item) {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(item)));
+      viewKey = 'share:' + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    }
   } catch (error) {
+    if (session !== sharedItemSession) return;
     console.error('Could not open shared item', error);
     document.getElementById('sharedItemTitle').textContent = 'Cannot open shared item';
     document.getElementById('sharedItemError').textContent = 'This shared link is invalid or unsupported: ' + error.message;
@@ -206,10 +214,11 @@ function openSharedItemFromUrl() {
     refreshSharedItemBoards();
     return;
   }
+  if (session !== sharedItemSession) return;
   if (!item) { closeSharedItemModal(false); return; }
   sharedItemContent = item;
   document.getElementById('sharedItemTitle').textContent = item.title;
-  document.getElementById('sharedItemContent').innerHTML = renderSharedItemContent(item);
+  document.getElementById('sharedItemContent').innerHTML = renderSharedItemContent(item, null, viewKey);
   document.getElementById('sharedItemModal').classList.add('active');
   refreshSharedItemBoards();
   document.getElementById('sharedItemClose').focus();
@@ -239,6 +248,7 @@ function onSharedItemBoardChange() {
 }
 
 function closeSharedItemModal(clearUrl = true) {
+  sharedItemSession++;
   sharedItemContent = null;
   document.getElementById('sharedItemContent').replaceChildren();
   document.getElementById('sharedItemError').textContent = '';
@@ -313,7 +323,7 @@ async function saveSharedItemCopy() {
     if (sharedItemContent === item) closeSharedItemModal();
     document.getElementById('searchBox').value = '';
     selectSection(sectionId);
-    expandedItems.add(itemId);
+    rememberItemExpanded(itemId, true);
     renderMain();
     if (persisted) {
       toast('Shared item saved to your board');

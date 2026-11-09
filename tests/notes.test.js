@@ -20,8 +20,10 @@ const esc = value => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 
 function helpers(extra = {}) {
   const errors = [];
+  const preferences = new Map();
   const context = vm.createContext({
     esc, escAttr: esc,
+    localStorage: { getItem: key => preferences.get(key) ?? null, setItem: (key, value) => preferences.set(key, value) },
     document: { querySelectorAll: () => [] },
     console: { error: (...args) => errors.push(args) },
     ...extra,
@@ -138,19 +140,19 @@ test('the main description starts expanded and keeps its original text and writi
 
 test('main-description collapse survives rerendering and resets independently per item', () => {
   const { context } = helpers();
-  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: false });
+  context.onDescriptionToggle({ dataset: { viewKey: 'item:7' }, open: false });
   assert.doesNotMatch(context.renderCollapsibleDescription('Main', 'plain', 'auto', 7), /class="item-description" open/);
   assert.match(context.renderCollapsibleDescription('Other item', 'plain', 'auto', 8), /class="item-description" open/);
   assert.match(context.renderCollapsibleDescription('Shared reader'), /class="item-description" open/);
-  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: true });
+  context.onDescriptionToggle({ dataset: { viewKey: 'item:7' }, open: true });
   assert.match(context.renderCollapsibleDescription('Main', 'plain', 'auto', 7), /class="item-description" open/);
 });
 
 test('changing description collapse synchronizes other mounted readers of the same item', () => {
-  const changed = { dataset: { descriptionItemId: '7' }, open: false };
+  const changed = { dataset: { viewKey: 'item:7' }, open: false };
   const sibling = { open: true };
   const { context } = helpers({ document: { querySelectorAll: selector => {
-    assert.equal(selector, '.item-description[data-description-item-id="7"]');
+    assert.equal(selector, '.item-description[data-view-key="item:7"]');
     return [changed, sibling];
   } } });
   context.onDescriptionToggle(changed);
@@ -162,10 +164,10 @@ test('changing description collapse synchronizes other mounted readers of the sa
 
 test('shared and full-screen main descriptions collapse without nesting a second control in notes', () => {
   const { context } = helpers();
-  vm.runInContext(share.slice(share.indexOf('function renderSharedItemContent('), share.indexOf('function openSharedItemFromUrl(')), context);
+  vm.runInContext(share.slice(share.indexOf('function renderSharedItemContent('), share.indexOf('async function openSharedItemFromUrl(')), context);
   const item = { boardType: 'reference', description: 'Original', descriptionFormat: 'plain',
     descriptionDirection: 'auto', notes: [plain], followups: [] };
-  context.onDescriptionToggle({ dataset: { descriptionItemId: '7' }, open: false });
+  context.onDescriptionToggle({ dataset: { viewKey: 'item:7' }, open: false });
   const fullscreen = context.renderSharedItemContent(item, 7);
   assert.doesNotMatch(fullscreen, /class="item-description" open/);
   assert.equal((fullscreen.match(/class="item-description"/g) || []).length, 1);

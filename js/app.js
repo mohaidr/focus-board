@@ -12,7 +12,7 @@ const RECURRENCE_LABELS = { 1: 'Daily', 2: 'Weekly', 3: 'Biweekly', 4: 'Monthly'
 /* ── Global State ── */
 let db              = null;   // set by initDB()
 let activeSectionId = null;
-let expandedItems   = new Set();
+let expandedItems   = new Set(readExpandedItemIds());
 let editingFollowupId = null;
 let dragItemId      = null;
 let dragSectionId   = null;
@@ -308,7 +308,7 @@ function runUnlockedItemAction(itemId, action, sectionId) {
     const index = action.slice(5);
     openItemNoteEditor(null, itemId, index === '' ? null : Number(index));
   } else {
-    expandedItems.add(itemId);
+    rememberItemExpanded(itemId, true);
     renderMain();
   }
 }
@@ -323,14 +323,12 @@ function lockItem(event, itemId) {
   if (event) event.stopPropagation();
   unlockedProtectedItems.delete(itemId);
   decryptedProtectedItems.delete(itemId);
-  expandedItems.delete(itemId);
   renderMain();
 }
 
 function lockAllProtectedItems() {
   unlockedProtectedItems.clear();
   decryptedProtectedItems.clear();
-  expandedItems.clear();
   renderMain();
   toast('Protected items locked');
 }
@@ -978,7 +976,8 @@ function applySnapshot(snapshot) {
 
   unlockedProtectedItems.clear();
   decryptedProtectedItems.clear();
-  collapsedDescriptions.clear();
+  forgetItemViews();
+  expandedItems.clear();
 }
 
 function formatBackupDate(iso) {
@@ -1068,7 +1067,6 @@ function renderBackupTab() {
 
 function selectBackupTab() {
   activeView = 'backup';
-  expandedItems.clear();
   sectionSearchTerm = '';
   renderSidebar();
   renderMain();
@@ -1877,7 +1875,7 @@ function toggleExpand(iid) {
     requestItemUnlock(iid, 'expand');
     return;
   }
-  expandedItems.has(iid) ? expandedItems.delete(iid) : expandedItems.add(iid);
+  rememberItemExpanded(iid, !expandedItems.has(iid));
   renderMain();
 }
 
@@ -1907,7 +1905,6 @@ function selectSection(id) {
   activeView = 'board';
   activeSectionId = id;
   localStorage.setItem('dashora_active_section', id);
-  expandedItems.clear();
   sectionSearchTerm = '';
   renderSidebar();
   renderMain();
@@ -2346,7 +2343,7 @@ function deleteSection(id) {
   if (!confirm('Delete this board and all its items?')) return;
   const items = db.exec('SELECT id FROM items WHERE section_id = ?', [id]);
   if (items.length) {
-    for (const [itemId] of items[0].values) collapsedDescriptions.delete(itemId);
+    forgetItemViews(items[0].values.map(([itemId]) => itemId));
   }
   db.run('DELETE FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
   db.run('DELETE FROM items WHERE section_id = ?', [id]);
@@ -3082,7 +3079,7 @@ async function updateItemNotes(itemId, update, backupReason = 'note-updated') {
     throw error;
   }
   if (encrypted) decryptedProtectedItems.set(itemId, { ...decryptedProtectedItems.get(itemId), notes });
-  expandedItems.add(itemId);
+  rememberItemExpanded(itemId, true);
   requestChangeBackup(backupReason);
   return true;
 }
@@ -3134,12 +3131,14 @@ async function deleteItemNote(event, itemId, index) {
   if (!confirm('Delete this note? The item and other notes will stay.')) return;
   itemSaveInProgress = true;
   try {
+    const count = getItemContent(itemId).notes.length;
     const saved = await updateItemNotes(itemId, notes => {
       if (!Number.isInteger(index) || index < 0 || index >= notes.length) throw new Error('This note no longer exists');
       notes.splice(index, 1);
       return notes;
     }, 'note-deleted');
     if (!saved) return;
+    remapNoteViews(itemId, count, index);
     renderSidebar();
     renderMain();
     toast('Note deleted');
@@ -3336,7 +3335,6 @@ async function moveItemNote(itemId, from, to, originalNotes = null) {
     if (expected !== JSON.stringify(notes)) throw new Error('Notes changed while dragging. Try again.');
     if (from === to) return false;
     const selector = `.item-note[data-note-item-id="${itemId}"]`;
-    const openStates = Array.from(document.querySelectorAll(selector), card => card.open);
     const saved = await updateItemNotes(itemId, entries => {
       if (expected !== JSON.stringify(entries)) throw new Error('Notes changed while moving. Try again.');
       const [note] = entries.splice(from, 1);
@@ -3344,13 +3342,9 @@ async function moveItemNote(itemId, from, to, originalNotes = null) {
       return entries;
     }, 'notes-reordered');
     if (!saved) return false;
-    if (openStates.length === notes.length) {
-      const [open] = openStates.splice(from, 1);
-      openStates.splice(to, 0, open);
-    }
+    remapNoteViews(itemId, notes.length, from, to);
     renderMain();
     const cards = document.querySelectorAll(selector);
-    if (cards.length === openStates.length) cards.forEach((card, index) => { card.open = openStates[index]; });
     cards[to]?.querySelector('.note-drag')?.focus();
     toast('Note order saved');
     return true;
@@ -3365,8 +3359,7 @@ async function moveItemNote(itemId, from, to, originalNotes = null) {
 
 function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
-  expandedItems.delete(id);
-  collapsedDescriptions.delete(id);
+  forgetItemViews([id]);
   unlockedProtectedItems.delete(id);
   decryptedProtectedItems.delete(id);
   db.run('DELETE FROM followups WHERE item_id = ?', [id]);
@@ -3518,7 +3511,8 @@ function importData(event) {
       activeView = 'board';
       unlockedProtectedItems.clear();
       decryptedProtectedItems.clear();
-      collapsedDescriptions.clear();
+      forgetItemViews();
+      expandedItems.clear();
 
       persist();
       renderSidebar();

@@ -52,6 +52,7 @@ function setup({ encrypted = false, failPersist = false, cancelEncryption = fals
     console: { error: (...args) => errors.push(args) },
     URL, URLSearchParams, TextEncoder, TextDecoder, esc, escAttr: esc,
     window: { innerHeight: 500, location: { href: 'https://example.com/' } },
+    localStorage: { getItem: () => null, setItem: () => {} },
     bytesToBase64: bytes => Buffer.from(bytes).toString('base64'),
     base64ToBytes: value => Buffer.from(value, 'base64'),
     itemSaveInProgress: false, noteDragState: null, dragItemId: 91, dragSectionId: 92,
@@ -84,10 +85,15 @@ function setup({ encrypted = false, failPersist = false, cancelEncryption = fals
     },
     persist: async () => { if (failPersist) throw new Error('Storage unavailable'); calls.push('persist'); },
     requestChangeBackup: reason => calls.push({ backup: reason }),
-    renderMain: () => { cards = notes().map((_, index) => makeCard(7, index)); calls.push('render'); },
+    renderMain: () => {
+      const states = context.getNoteOpenStates('item:7', notes().length);
+      cards = notes().map((_, index) => makeCard(7, index, states[index]));
+      calls.push('render');
+    },
     toast: text => calls.push({ toast: text }),
   });
   vm.runInContext(markdown, context);
+  context.setExpansionValue('item:7', 'notes', [true, false, true]);
   const readContent = context.getItemContent;
   vm.runInContext(share, context);
   context.getItemContent = readContent;

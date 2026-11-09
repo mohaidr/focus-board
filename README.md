@@ -60,14 +60,23 @@ copies, share links, full-screen reading and backups. Encrypted reordering asks
 for the encryption password, just like editing. Note text stays selectable, and
 collapsed notes retain their state when reordered.
 
-Click a note heading to collapse or expand it;
+Use **Collapse all / Expand all** beside **Notes** to change all notes together,
+or click a note heading to collapse or expand it individually;
 use its **Edit** or **Delete** button to change just that note. The original
 description remains separate and is never automatically split or rewritten.
 Notes are distinct from actionable follow-ups.
 Click **Description** to collapse the main description without hiding the notes
-or other item controls. It starts expanded and remembers its collapse state
-while the page is open, including in the full-screen reader. Shared readers also
-support collapsing the description. This changes only the view, not saved text.
+or other item controls. Items, descriptions and individual notes remember their
+open/closed state in this browser across navigation and reloads. New items start
+collapsed; new descriptions and notes start expanded. Note states follow their
+notes when reordered or deleted, and the full-screen reader shares the same
+preferences. Shared readers also remember description/note state per shared
+item, with no item text stored in these preferences.
+
+These are browser-local view preferences, separate from exported/backed-up
+content; importing or restoring data resets local item view preferences to avoid
+applying them to unrelated restored IDs. Collapsing never changes text, note
+order, encryption, or backup contents.
 
 Notes are included in search, clipboard copies, share links, full-screen reading,
 exports and backups. Encrypted items encrypt their notes together with the rest
@@ -368,6 +377,12 @@ Run multiple-note, legacy migration, sharing, encryption, and auto-save tests:
 
 ```powershell
 node --test tests\notes.test.js tests\note-order.test.js
+```
+
+Run persistent item/description/note view and Collapse all / Expand all tests:
+
+```powershell
+node --test tests\view-state.test.js
 ```
 
 Run mutation backup, snapshot queuing, retention, and failure-recovery tests:
