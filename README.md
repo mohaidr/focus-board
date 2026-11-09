@@ -49,8 +49,9 @@ Expand a saved task or reference item and choose **+ Add note** below its
 description. Notes have an optional title and their own Plain text/Markdown and
 Auto/LTR/RTL controls, using the same formatting, preview, image-paste and undo
 support as the description editor. Save the item first when creating a new item.
-The note editor is wide on desktop, with a roomy Write/Preview area and Save
-controls that stay visible while scrolling. It adapts to smaller screens.
+The note editor is wide on desktop, with a roomy Write/Preview area. Its content
+scrolls separately from the header and Save controls, so long previews stay
+contained above the footer. It adapts to smaller screens.
 
 With two or more notes, drag a note's grip to place it before or after another
 note in the same item. Touch dragging is supported; with the grip focused,

@@ -11,6 +11,7 @@ const app = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
 const share = fs.readFileSync(path.join(root, 'js', 'share.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'js', 'db.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'css', 'style.css'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const source = '## \u0645\u0631\u062d\u0628\u0627\n\n**Keep** two spaces  \nnext line\n\n```js\nconst value = 1;\n```\n';
 const note = { title: 'Investigation', description: source, descriptionFormat: 'markdown', descriptionDirection: 'rtl' };
 const plain = { title: '', description: 'Literal **text**', descriptionFormat: 'plain', descriptionDirection: 'auto' };
@@ -103,8 +104,21 @@ test('shared/read-only notes have no mutation controls, and empty readers have n
 test('task and reference notes use the wide editor with roomy writing and preview areas', () => {
   assert.match(app, /classList\.toggle\('item-modal-wide', isRef \|\| !!noteEditor\)/);
   assert.match(css, /#itemModal\.editing-note #itemDesc,\s*#itemModal\.editing-note \.description-preview\s*\{\s*min-height:\s*clamp\(220px, 42vh, 440px\)/);
-  assert.match(css, /#itemModal\.editing-note \.modal-actions\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0;/);
   assert.match(css, /#itemModal\.editing-note \.modal\s*\{\s*max-height:\s*calc\(100dvh - 32px\)/);
+});
+
+test('note preview scrolling is clipped in a separate body above the non-scrolling footer', () => {
+  const modal = css.match(/#itemModal\.editing-note \.modal\s*\{([^}]+)\}/)[1];
+  assert.match(modal, /display:\s*flex;/);
+  assert.match(modal, /flex-direction:\s*column;/);
+  assert.match(modal, /overflow:\s*hidden;/);
+  const body = css.match(/#itemModal\.editing-note \.item-editor-body\s*\{([^}]+)\}/)[1];
+  assert.match(body, /min-height:\s*0;/);
+  assert.match(body, /overflow:\s*auto;/);
+  assert.match(css, /\.item-editor-header,\s*#itemModal\.editing-note \.modal-actions\s*\{\s*flex-shrink:\s*0;/);
+  const footer = css.match(/#itemModal\.editing-note \.modal-actions\s*\{\s*margin-top[^}]+\}/)[0];
+  assert.doesNotMatch(footer, /position:\s*sticky/);
+  assert.match(html, /<div class="item-editor-body">[\s\S]+?<textarea id="itemDesc"[\s\S]+?<\/div>\s*<div class="modal-actions">\s*<button[^>]+onclick="closeItemModal\(\)"/);
 });
 
 test('damaged note rendering reports an explicit visible error', () => {

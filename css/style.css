@@ -1566,13 +1566,26 @@ body {
 .item-note-add { justify-self: start; color: var(--accent); }
 .item-note-context { margin: -12px 0 20px; color: var(--text-muted); font-size: 15px; overflow-wrap: anywhere; }
 #itemModal.editing-note .item-only { display: none !important; }
-#itemModal.editing-note .modal { max-height: calc(100dvh - 32px); }
+#itemModal.editing-note .modal {
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#itemModal.editing-note .item-editor-header,
+#itemModal.editing-note .modal-actions { flex-shrink: 0; }
+#itemModal.editing-note .item-editor-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
 #itemModal.editing-note #itemDesc,
 #itemModal.editing-note .description-preview { min-height: clamp(220px, 42vh, 440px); }
 #itemModal.editing-note .modal-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
+  margin-top: 12px;
   padding: 12px 0;
   background: var(--surface);
   border-top: 1px solid var(--border);
