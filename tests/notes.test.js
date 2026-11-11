@@ -89,6 +89,7 @@ test('plain note titles and bodies are escaped, with compact collapse/edit/delet
   assert.match(html, /&lt;script&gt;Title&lt;\/script&gt;/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(html, /openItemNoteEditor\(event, 7, 0\)/);
+  assert.match(html, /shareNote\(event, 7, 0\)/);
   assert.match(html, /deleteItemNote\(event, 7, 0\)/);
   assert.match(html, /\+ Add note/);
   assert.doesNotMatch(html, /<script>|<img /);
@@ -245,7 +246,7 @@ function mutations({ encrypted = false, failPersist = false, cancelEncryption = 
     renderSidebar: () => {}, renderMain: () => {},
     confirm: () => true,
   });
-  vm.runInContext(app.slice(app.indexOf('function openItemNoteEditor('), app.indexOf('function deleteItem(')), context);
+  vm.runInContext(app.slice(app.indexOf('function openItemNoteEditor('), app.indexOf('async function deleteItem(')), context);
   vm.runInContext(app.slice(app.indexOf('function hasItemNoteChanges('), app.indexOf('function closeItemModal(')), context);
   return { context, calls, elements, originalFields, fields: () => fields, decrypted };
 }

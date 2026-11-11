@@ -122,24 +122,68 @@ function getItemShareContent(id) {
   return validateSharedItem(getItemContent(id));
 }
 
-function shareItem(event, id) {
-  if (event) event.stopPropagation();
+function getNoteShareContent(id, index) {
+  const item = getItemContent(id);
+  if (!Number.isInteger(index) || index < 0 || index >= item.notes.length) {
+    throw new Error('This note no longer exists. Reopen the item.');
+  }
+  const [note] = validateItemNotes([item.notes[index]]);
+  return validateSharedItem({
+    title: note.title.trim() || 'Shared note',
+    description: note.description,
+    descriptionFormat: note.descriptionFormat,
+    descriptionDirection: note.descriptionDirection,
+    notes: [],
+    link: '',
+    boardType: 'reference',
+    status: 0,
+    dueDate: null,
+    recurring: 0,
+    recurringDays: null,
+    recurringTime: null,
+    sketchData: null,
+    followups: [],
+  });
+}
+
+function shareNote(event, id, index) {
+  if (!Number.isInteger(index) || index < 0) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    closeShareModal();
+    console.error('Could not share note: invalid note index', index);
+    toast('Could not share note: choose a valid saved note.');
+    return;
+  }
+  shareItem(event, id, index);
+}
+
+function shareItem(event, id, noteIndex = null) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const sharingNote = noteIndex !== null;
   closeShareModal();
   const protection = getItemProtection(id);
   if (!protection) { toast('Item not found'); return; }
-  if (protection.isProtected && (isItemLocked(id, 1) || (protection.isEncrypted && !decryptedProtectedItems.has(id)))) {
-    requestItemUnlock(id, 'share');
+  if ((protection.isProtected && isItemLocked(id, 1)) ||
+      (protection.isEncrypted && !decryptedProtectedItems.has(id))) {
+    requestItemUnlock(id, sharingNote ? 'share-note:' + noteIndex : 'share');
     return;
   }
-  if (protection.isProtected && !confirm('This link contains an unprotected copy of the item. Anyone with the URL can read it, even if the original is password-protected or encrypted. Continue?')) return;
+  const contentLabel = sharingNote ? 'selected note' : 'item';
+  if (protection.isProtected && !confirm(`This link contains an unprotected copy of the ${contentLabel}. Anyone with the URL can read it, even if the original is password-protected or encrypted. Continue?`)) return;
   let url;
   try {
-    url = encodeItemShareUrl(getItemShareContent(id));
+    url = encodeItemShareUrl(sharingNote ? getNoteShareContent(id, noteIndex) : getItemShareContent(id));
   } catch (error) {
-    console.error('Could not share item', error);
-    toast('Could not share item: ' + error.message);
+    console.error('Could not share ' + (sharingNote ? 'note' : 'item'), error);
+    toast('Could not share ' + (sharingNote ? 'note' : 'item') + ': ' + error.message);
     return;
   }
+  if (document.getElementById('itemFullscreen').open) closeItemFullscreen();
+  document.getElementById('shareItemTitle').textContent = sharingNote ? 'Share note' : 'Share item';
+  document.getElementById('itemShareNotice').textContent = (sharingNote
+    ? 'Only this note is included in this URL. The parent item and other notes are not included. '
+    : 'All item content is included in this URL. ') +
+    'Anyone with the link can read the shared copy. Passwords and encryption are not included.';
   const input = document.getElementById('itemShareUrl');
   input.value = url;
   document.getElementById('itemShareUrlLength').textContent = `${new TextEncoder().encode(url).byteLength.toLocaleString()} bytes`;
@@ -182,7 +226,7 @@ function renderSharedItemContent(item, itemId = null, viewKey = itemId === null 
   return `
     <div class="shared-item-meta">${metadata.map(text => `<span>${esc(text)}</span>`).join('')}</div>
     ${item.description ? renderCollapsibleDescription(item.description, item.descriptionFormat, item.descriptionDirection, itemId, viewKey) : ''}
-    ${renderItemNotes(item.notes, null, viewKey)}
+    ${renderItemNotes(item.notes, null, viewKey, itemId)}
     ${item.link ? `<div class="item-detail-link"><a href="${escAttr(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a></div>` : ''}
     ${item.sketchData ? `<div class="sketch-preview-large"><img src="${escAttr(item.sketchData)}" alt="Shared sketch"></div>` : ''}
     ${followups}`;

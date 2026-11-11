@@ -301,6 +301,9 @@ function runUnlockedItemAction(itemId, action, sectionId) {
   } else if (action === 'share') {
     shareItem(null, itemId);
     renderMain();
+  } else if (action.startsWith('share-note:')) {
+    shareNote(null, itemId, Number(action.slice(11)));
+    renderMain();
   } else if (action === 'fullscreen') {
     renderMain();
     openItemFullscreen(null, itemId);
@@ -903,7 +906,7 @@ function getBackupReasonLabel(reason) {
   return ({
     daily: 'Daily auto', manual: 'Manual', 'pre-import': 'Before import',
     'new-board': 'New board', 'new-item': 'New item', 'new-followup': 'New follow-up',
-    'item-updated': 'Item updated', 'note-added': 'Note added', 'note-updated': 'Note updated',
+    'item-updated': 'Item updated', 'item-deleted': 'Item deleted', 'note-added': 'Note added', 'note-updated': 'Note updated',
     'note-deleted': 'Note deleted', 'notes-reordered': 'Notes reordered',
   })[reason] || 'Manual';
 }
@@ -3357,17 +3360,40 @@ async function moveItemNote(itemId, from, to, originalNotes = null) {
   }
 }
 
-function deleteItem(id) {
+async function deleteItem(id) {
+  if (itemSaveInProgress) { toast('Please wait for the save to finish'); return; }
   if (!confirm('Delete this item?')) return;
-  forgetItemViews([id]);
-  unlockedProtectedItems.delete(id);
-  decryptedProtectedItems.delete(id);
-  db.run('DELETE FROM followups WHERE item_id = ?', [id]);
-  db.run('DELETE FROM items WHERE id = ?', [id]);
-  persist();
-  renderSidebar();
-  renderMain();
-  toast('Item deleted');
+  itemSaveInProgress = true;
+  try {
+    const items = db.exec('SELECT * FROM items WHERE id = ?', [id]);
+    if (!items.length || !items[0].values.length) throw new Error('Item not found');
+    const followups = db.exec('SELECT * FROM followups WHERE item_id = ?', [id]);
+    db.run('DELETE FROM followups WHERE item_id = ?', [id]);
+    db.run('DELETE FROM items WHERE id = ?', [id]);
+    try {
+      await persist();
+    } catch (error) {
+      for (const [table, results] of [['items', items], ['followups', followups]]) {
+        if (!results.length) continue;
+        const { columns, values } = results[0];
+        const placeholders = columns.map(() => '?').join(', ');
+        for (const row of values) db.run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`, row);
+      }
+      throw error;
+    }
+    forgetItemViews([id]);
+    unlockedProtectedItems.delete(id);
+    decryptedProtectedItems.delete(id);
+    renderSidebar();
+    renderMain();
+    toast('Item deleted');
+    requestChangeBackup('item-deleted');
+  } catch (error) {
+    console.error('Could not delete item', error);
+    toast('Could not delete item: ' + error.message);
+  } finally {
+    itemSaveInProgress = false;
+  }
 }
 
 function copyItem(event, id) {

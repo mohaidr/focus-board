@@ -203,6 +203,9 @@ test('read-only full-screen notes share local collapse state without edit or dra
   assert.equal((html.match(/class="item-note" open/g) || []).length, 1);
   assert.match(html, /aria-label="Collapse all notes"/);
   assert.doesNotMatch(html, /openItemNoteEditor|deleteItemNote|draggable=/);
+  assert.match(html, /shareNote\(event, 7, 0\)/);
+  const shared = context.renderSharedItemContent({ boardType: 'reference', description: '', notes, followups: [] });
+  assert.doesNotMatch(shared, /shareNote\(/);
 });
 
 function sharedHarness() {

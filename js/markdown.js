@@ -517,7 +517,8 @@ function itemNotesMatch(notes, term) {
     note.description.toLowerCase().includes(term));
 }
 
-function renderItemNotes(notes = [], itemId = null, viewKey = itemId === null ? null : getItemViewKey(itemId)) {
+function renderItemNotes(notes = [], itemId = null, viewKey = itemId === null ? null : getItemViewKey(itemId),
+  shareItemId = itemId) {
   let entries;
   try {
     entries = validateItemNotes(notes);
@@ -548,11 +549,13 @@ function renderItemNotes(notes = [], itemId = null, viewKey = itemId === null ? 
             onlostpointercapture="onNotePointerCancel(event)"
             onkeydown="onNoteOrderKeydown(event, ${itemId}, ${index}, ${entries.length})">&#9776;</button>`}
           <span class="item-note-title" dir="auto">${esc(note.title || 'Note ' + (index + 1))}</span>
-          ${itemId === null ? '' : `<span class="item-note-actions">
-            <button type="button" class="btn btn-ghost btn-sm" aria-label="Edit note ${index + 1}"
-                    onclick="openItemNoteEditor(event, ${itemId}, ${index})">Edit</button>
-            <button type="button" class="btn btn-ghost btn-sm note-delete" aria-label="Delete note ${index + 1}"
-                    onclick="deleteItemNote(event, ${itemId}, ${index})">Delete</button>
+          ${itemId === null && shareItemId === null ? '' : `<span class="item-note-actions">
+            ${itemId === null ? '' : `<button type="button" class="btn btn-ghost btn-sm" aria-label="Edit note ${index + 1}"
+                    onclick="openItemNoteEditor(event, ${itemId}, ${index})">Edit</button>`}
+            ${shareItemId === null ? '' : `<button type="button" class="btn btn-ghost btn-sm" aria-label="Share note ${index + 1}"
+                    title="Share only this note" onclick="shareNote(event, ${shareItemId}, ${index})">Share</button>`}
+            ${itemId === null ? '' : `<button type="button" class="btn btn-ghost btn-sm note-delete" aria-label="Delete note ${index + 1}"
+                    onclick="deleteItemNote(event, ${itemId}, ${index})">Delete</button>`}
           </span>`}
         </summary>
         ${renderDescription(note.description, note.descriptionFormat, note.descriptionDirection)}

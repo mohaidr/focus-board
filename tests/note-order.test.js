@@ -98,7 +98,7 @@ function setup({ encrypted = false, failPersist = false, cancelEncryption = fals
   vm.runInContext(share, context);
   context.getItemContent = readContent;
   vm.runInContext(app.slice(app.indexOf('async function updateItemNotes('), app.indexOf('async function saveItemNoteOnce(')), context);
-  vm.runInContext(app.slice(app.indexOf('function getNoteDropIndex('), app.indexOf('function deleteItem(')), context);
+  vm.runInContext(app.slice(app.indexOf('function getNoteDropIndex('), app.indexOf('async function deleteItem(')), context);
   vm.runInContext(app.slice(app.indexOf('function onItemDragOver('), app.indexOf('function onSectionDragStart(')), context);
   return { context, calls, errors, modal, scroller, notes, fields: () => fields, cards: () => cards,
     point: card => { point = card; }, frame: () => frame?.() };

@@ -77,11 +77,11 @@ function setup() {
 test('each successful content-change reason creates a new backup even when a backup exists today', async () => {
   const { context, records, files } = setup();
   await context.createBackup('daily', { createdAt: date, silent: true });
-  for (const reason of ['item-updated', 'note-added', 'note-updated', 'note-deleted', 'notes-reordered']) {
+  for (const reason of ['new-item', 'item-updated', 'item-deleted', 'note-added', 'note-updated', 'note-deleted', 'notes-reordered']) {
     assert.equal(await context.requestChangeBackup(reason), true);
   }
   assert.deepEqual(records.map(record => record.reason), [
-    'daily', 'item-updated', 'note-added', 'note-updated', 'note-deleted', 'notes-reordered',
+    'daily', 'new-item', 'item-updated', 'item-deleted', 'note-added', 'note-updated', 'note-deleted', 'notes-reordered',
   ]);
   assert.equal(files.size, 3);
 });
@@ -194,7 +194,7 @@ test('note order, exact Markdown and encrypted rows are retained by snapshotting
 
 test('new backup reasons have accurate labels in the backup UI', () => {
   const { context } = setup();
-  for (const [reason, label] of [['item-updated', 'Item updated'], ['note-added', 'Note added'],
+  for (const [reason, label] of [['item-updated', 'Item updated'], ['item-deleted', 'Item deleted'], ['note-added', 'Note added'],
     ['note-updated', 'Note updated'], ['note-deleted', 'Note deleted'], ['notes-reordered', 'Notes reordered']]) {
     assert.equal(context.getBackupReasonLabel(reason), label);
   }
@@ -213,4 +213,95 @@ test('pending backups warn on page exit, without starting a second save', () => 
   handler(event);
   assert.equal(prevented, true);
   assert.equal(event.returnValue, '');
+});
+
+function deletionSetup({ accepted = true, failPersist = false, missing = false } = {}) {
+  const { context, records, files, errors, warnings } = setup();
+  const item = { columns: ['id', 'title', 'notes', 'encrypted_data'],
+    values: [[7, 'Encrypted item', '[]', 'encrypted-description-and-notes']] };
+  const followup = { columns: ['id', 'item_id', 'text', 'completed'], values: [[4, 7, 'Follow-up', 0]] };
+  let items = missing ? [] : clone(item.values);
+  let followups = clone(followup.values);
+  let persisted = false;
+  const forgotten = [];
+  context.confirm = () => accepted;
+  context.itemSaveInProgress = false;
+  context.unlockedProtectedItems = new Set([7]);
+  context.decryptedProtectedItems = new Map([[7, { description: 'Visible only while unlocked' }]]);
+  context.forgetItemViews = ids => forgotten.push(...ids);
+  context.db.exec = sql => {
+    const table = sql.includes('FROM followups') ? followup : sql.includes('FROM items') ? item : null;
+    if (!table) return [];
+    const values = table === item ? items : followups;
+    return values.length ? [{ columns: table.columns, values: clone(values) }] : [];
+  };
+  context.db.run = (sql, params) => {
+    assert.equal((sql.match(/\?/g) || []).length, params.length);
+    if (sql.startsWith('DELETE FROM items')) items = [];
+    else if (sql.startsWith('DELETE FROM followups')) followups = [];
+    else if (sql.startsWith('INSERT INTO items')) items.push([...params]);
+    else if (sql.startsWith('INSERT INTO followups')) followups.push([...params]);
+    else throw new Error('Unexpected SQL: ' + sql);
+  };
+  context.persist = async () => {
+    if (failPersist) throw new Error('Browser storage is full');
+    persisted = true;
+  };
+  const requestBackup = context.requestChangeBackup;
+  context.requestChangeBackup = reason => {
+    assert.equal(persisted, true, 'Back up only after the deletion has been persisted');
+    return requestBackup(reason);
+  };
+  vm.runInContext(app.slice(app.indexOf('async function deleteItem('), app.indexOf('function copyItem(')), context);
+  return { context, records, files, errors, warnings, forgotten, item, followup,
+    rows: () => ({ items, followups }) };
+}
+
+test('confirmed item deletion creates an actual queued backup of the post-deletion state', async () => {
+  const { context, records, files, rows, forgotten } = deletionSetup();
+  await context.deleteItem(7);
+  await context.backupWriteQueue;
+  assert.deepEqual(rows(), { items: [], followups: [] });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].reason, 'item-deleted');
+  assert.deepEqual(records[0].snapshot.items, []);
+  assert.deepEqual(records[0].snapshot.followups, []);
+  assert.equal(files.size, 1);
+  assert.deepEqual(forgotten, [7]);
+  assert.equal(context.decryptedProtectedItems.has(7), false);
+  assert.equal(context.itemSaveInProgress, false);
+});
+
+test('canceling item deletion never changes content or requests a backup', async () => {
+  const { context, records, rows, item, followup, forgotten } = deletionSetup({ accepted: false });
+  await context.deleteItem(7);
+  assert.deepEqual(rows(), { items: item.values, followups: followup.values });
+  assert.equal(records.length, 0);
+  assert.deepEqual(forgotten, []);
+});
+
+test('failed deletion persistence restores the exact item and follow-ups without creating a backup', async () => {
+  const { context, records, rows, item, followup, forgotten, errors, warnings } = deletionSetup({ failPersist: true });
+  await context.deleteItem(7);
+  assert.deepEqual(rows(), { items: item.values, followups: followup.values });
+  assert.equal(records.length, 0);
+  assert.deepEqual(forgotten, []);
+  assert.equal(context.unlockedProtectedItems.has(7), true);
+  assert.equal(context.decryptedProtectedItems.has(7), true);
+  assert.equal(context.itemSaveInProgress, false);
+  assert.equal(errors.length, 1);
+  assert.ok(warnings.includes('Could not delete item: Browser storage is full'));
+  assert.ok(!warnings.includes('Item deleted'));
+});
+
+test('missing items and in-flight saves cannot create deletion backups', async () => {
+  const missing = deletionSetup({ missing: true });
+  await missing.context.deleteItem(7);
+  assert.equal(missing.records.length, 0);
+  assert.ok(missing.warnings.includes('Could not delete item: Item not found'));
+  const busy = deletionSetup();
+  busy.context.itemSaveInProgress = true;
+  await busy.context.deleteItem(7);
+  assert.equal(busy.records.length, 0);
+  assert.deepEqual(busy.rows().items, busy.item.values);
 });

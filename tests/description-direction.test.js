@@ -162,7 +162,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
   vm.runInContext(app.slice(app.indexOf('function onDescriptionFormatChange('),
     app.indexOf('function onDescriptionPaste(')), context);
   vm.runInContext(app.slice(app.indexOf('async function saveItemOnce('),
-    app.indexOf('function deleteItem(')), context);
+    app.indexOf('async function deleteItem(')), context);
   vm.runInContext(app.slice(app.indexOf('async function silentSaveItem('),
     app.indexOf('function scheduleAutoSave(')), context);
   return { context, calls, elements };
