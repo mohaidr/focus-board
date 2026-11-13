@@ -6,10 +6,10 @@
 /* -- Variables -- */
 :root {
   color-scheme: dark;
-  --font-ui: 'Patrick Hand', 'Noto Kufi Arabic', 'Segoe UI', cursive;
-  --font-heading: 'Kalam', 'Noto Kufi Arabic', cursive;
-  --font-code: Consolas, 'Noto Kufi Arabic', 'Courier New', monospace;
-  --font-arabic: 'Noto Kufi Arabic', 'Segoe UI', sans-serif;
+  --font-ui: 'Patrick Hand', 'IBM Plex Sans Arabic', 'Segoe UI', cursive;
+  --font-heading: 'Kalam', 'IBM Plex Sans Arabic', cursive;
+  --font-code: Consolas, 'IBM Plex Sans Arabic', 'Courier New', monospace;
+  --font-arabic: 'IBM Plex Sans Arabic', 'Segoe UI', sans-serif;
   --bg: #1a2030;
   --bg-rgb: 26, 32, 48;
   --surface: #202840;
@@ -183,7 +183,7 @@ body {
   gap: 14px;
 }
 .sidebar-brand h1 {
-  font-family: 'Satisfy', 'Noto Kufi Arabic', cursive;
+  font-family: 'Satisfy', 'IBM Plex Sans Arabic', cursive;
   font-size: 26px;
   font-weight: 400;
   color: var(--accent);

@@ -542,7 +542,7 @@ Manage your backup folder from **Backups**, not Settings.
   synchronized with other open Dashora tabs.
 - Light uses warm **`#f3f1ed`** backgrounds across sidebar, main pane, and header,
   with softer card surfaces rather than bright white panels.
-- Arabic/automatically detected RTL text uses **Noto Kufi Arabic** from Google
+- Arabic/automatically detected RTL text uses **IBM Plex Sans Arabic** from Google
   Fonts, with system fallbacks. Latin UI fonts and monospace code are preserved.
 - Both themes cover boards, dashboard, dialogs, editors/previews, reminders,
   and native date/time controls.

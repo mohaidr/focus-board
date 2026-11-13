@@ -220,7 +220,7 @@ test('theme bootstrap and metadata precede styles, and the bootstrap is cached o
     assert.ok(position >= 0 && position < script);
   }
   assert.match(worker, /'\.\/js\/theme\.js'/);
-  assert.match(worker, /const CACHE_VERSION = 52;/);
+  assert.match(worker, /const CACHE_VERSION = 54;/);
 });
 
 const darkBlock = css.match(/:root\s*\{([\s\S]*?)\}/);
@@ -306,14 +306,14 @@ test('reference headers keep their icon, title and controls aligned without task
 
 test('Arabic typography is shared across RTL fields, mixed text and code fallbacks', () => {
   for (const token of ['--font-ui', '--font-heading', '--font-code', '--font-arabic']) {
-    assert.match(dark[token], /Noto Kufi Arabic/, token);
+    assert.match(dark[token], /IBM Plex Sans Arabic/, token);
   }
   assert.match(css, /#itemDesc:dir\(rtl\)/);
   assert.match(css, /\.followup-input:dir\(rtl\)/);
   assert.match(app, /class="followup-input" dir="auto"/);
   assert.match(app, /class="followup-input followup-edit-input" dir="auto"/);
   const fontUrl = html.match(/<link href="([^"]*fonts\.googleapis\.com[^"]+)"[^>]*crossorigin="anonymous"/)[1];
-  assert.ok(fontUrl.includes('Noto+Kufi+Arabic'));
+  assert.ok(fontUrl.includes('IBM+Plex+Sans+Arabic:wght@400;700'));
   assert.ok(worker.includes("'" + fontUrl + "'"));
 });
 
