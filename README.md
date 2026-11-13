@@ -728,4 +728,17 @@ Keep independent backups of important data and use the app at your own discretio
 
 ## License
 
-MIT
+Dashora uses the [Dashora Organizer Source-Available License 1.0](./LICENSE).
+It is **source-available, not open source**.
+
+| You may, without a license fee | Requires separate written permission |
+| --- | --- |
+| Use Dashora, including in commercial organizations and institutions | Reuse its code in another app, product, library, or codebase |
+| Self-host or redistribute unmodified Dashora with its license and notices | Distribute modified versions or modified source code |
+| Modify Dashora for personal or internal organizational use | Host modified versions for people outside that personal/internal use |
+
+These restrictions do not apply to your own content or replace third-party
+component licenses. See the [full license](./LICENSE) for the governing terms.
+
+**Earlier MIT copies keep their MIT permissions.** This license change cannot
+revoke rights already granted for those copies.

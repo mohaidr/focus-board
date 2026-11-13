@@ -1,0 +1,83 @@
+Dashora Organizer Source-Available License 1.0
+
+1. Scope
+
+This license applies to the original Dashora Organizer code and other materials
+expressly distributed under this license (the "Software"). "Licensors" means
+the copyright holders offering those materials under this license.
+
+Third-party components, libraries, fonts, and other materials remain governed
+by their own licenses. This license does not replace or restrict those licenses.
+It does not apply to content you create or store using the Software.
+
+2. Permitted use
+
+Subject to the conditions below, the Licensors grant you a worldwide,
+non-exclusive, royalty-free license to:
+
+(a) Run and use the Software for any lawful purpose, including personal,
+    educational, nonprofit, institutional, and commercial use.
+(b) Copy, install, and self-host unmodified versions of the Software, including
+    hosting an unmodified version for others to use.
+(c) Redistribute unmodified copies of the Software with this license and all
+    existing copyright, attribution, and third-party notices intact.
+(d) Modify the Software solely for your own personal use or your organization's
+    internal use, provided the modified version remains a version of Dashora
+    Organizer and complies with Section 3.
+
+No license fee is required for these permitted activities.
+
+3. Restrictions
+
+Without separate written permission from the applicable Licensors, you may not:
+
+(a) Copy, extract, incorporate, port, or otherwise reuse any of the Software's
+    code in another application, product, library, or codebase, whether that
+    other project is commercial or noncommercial, public or private.
+(b) Distribute, publish, sublicense, or otherwise provide modified versions
+    of the Software, including modified source code, to third parties.
+(c) Host or otherwise make a modified version available for use outside your
+    own personal use or your organization's internal use.
+(d) Remove or misrepresent the Software's copyright, attribution, or license
+    notices.
+
+Copying the Software to deploy Dashora Organizer or to make the private
+modifications permitted by Section 2 is not prohibited code reuse under
+Section 3(a). Private modification does not authorize extracting or incorporating
+the code into another application.
+
+These restrictions apply only to rights controlled by the Licensors. They do
+not restrict independently written code, general ideas, third-party materials
+under their own licenses, or rights that applicable law does not allow this
+license to restrict.
+
+4. Ownership and additional permissions
+
+The Licensors retain ownership of their respective materials. No trademark
+rights, endorsement, or rights beyond those expressly stated are granted.
+For code reuse, redistribution of modifications, or other uses outside this
+license, obtain separate written permission from the applicable Licensors.
+
+5. Termination
+
+Your permissions under this license terminate automatically if you violate its
+terms. Upon termination, stop using, copying, modifying, hosting, and distributing
+the Software under this license. Termination does not affect rights independently
+available under applicable law or a separate license.
+
+6. Earlier licenses
+
+This license applies only to copies offered under it. It does not revoke or
+restrict permissions already granted for earlier copies under the MIT License
+or another license. Such copies remain subject to the license under which they
+were received.
+
+7. Disclaimer of warranty and limitation of liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. TO THE MAXIMUM EXTENT
+PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSORS BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT,
+OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
