@@ -1,10 +1,24 @@
-Dashora Organizer Source-Available License 1.0
+Dashora Organizer Source-Available License 1.1
 
 1. Scope
 
 This license applies to the original Dashora Organizer code and other materials
 expressly distributed under this license (the "Software"). "Licensors" means
 the copyright holders offering those materials under this license.
+
+The "Official Repository" is https://github.com/mohaidr/focus-board.
+"Authorized Maintainers" means maintainers authorized by the applicable
+Licensors to accept contributions and approve commercial eligibility.
+
+The "Software" includes the application as accessed through a hosted service,
+not only downloaded or self-hosted copies.
+
+For this license, "Commercial Use" means use for or within a for-profit business,
+or use in providing paid services or pursuing commercial advantage. It includes
+internal business use, use by employees or contractors for business work, and
+commercial hosting, even if no fee is charged for access to Dashora itself.
+Personal use unrelated to business and noncommercial educational, charitable,
+or public-institution use are not Commercial Use.
 
 Third-party components, libraries, fonts, and other materials remain governed
 by their own licenses. This license does not replace or restrict those licenses.
@@ -15,17 +29,25 @@ It does not apply to content you create or store using the Software.
 Subject to the conditions below, the Licensors grant you a worldwide,
 non-exclusive, royalty-free license to:
 
-(a) Run and use the Software for any lawful purpose, including personal,
-    educational, nonprofit, institutional, and commercial use.
+(a) Run and use the Software for lawful noncommercial purposes.
 (b) Copy, install, and self-host unmodified versions of the Software, including
-    hosting an unmodified version for others to use.
+    hosting an unmodified version for others' noncommercial use.
 (c) Redistribute unmodified copies of the Software with this license and all
-    existing copyright, attribution, and third-party notices intact.
+    existing copyright, attribution, and third-party notices intact, for
+    noncommercial purposes.
 (d) Modify the Software solely for your own personal use or your organization's
     internal use, provided the modified version remains a version of Dashora
-    Organizer and complies with Section 3.
+    Organizer and complies with Section 3. Commercial Use of either an
+    unmodified or privately modified version also requires Section 4 approval.
+(e) Publish proposed modifications solely for contribution review through the
+    Official Repository's public pull-request process, including a public fork
+    or branch necessary for that process, subject to Section 4. This exception
+    does not permit distributing a separate modified product or hosting it for
+    public use.
 
 No license fee is required for these permitted activities.
+Commercial Use is permitted without a license fee only after qualification
+and explicit approval under Section 4.
 
 3. Restrictions
 
@@ -35,11 +57,16 @@ Without separate written permission from the applicable Licensors, you may not:
     code in another application, product, library, or codebase, whether that
     other project is commercial or noncommercial, public or private.
 (b) Distribute, publish, sublicense, or otherwise provide modified versions
-    of the Software, including modified source code, to third parties.
+    of the Software, including modified source code, to third parties,
+    except through the contribution-review process in Section 2(e).
 (c) Host or otherwise make a modified version available for use outside your
     own personal use or your organization's internal use.
 (d) Remove or misrepresent the Software's copyright, attribution, or license
     notices.
+
+Commercial Use without the qualification and approval required by Section 4
+is not permitted. A public push, pull request, or merge alone grants no
+commercial permission.
 
 Copying the Software to deploy Dashora Organizer or to make the private
 modifications permitted by Section 2 is not prohibited code reuse under
@@ -51,28 +78,108 @@ not restrict independently written code, general ideas, third-party materials
 under their own licenses, or rights that applicable law does not allow this
 license to restrict.
 
-4. Ownership and additional permissions
+4. Contribution-based commercial permission
+
+4.1 Qualifying feature
+
+To qualify, an individual must author and publicly submit at least one complete
+new feature through the Official Repository's contribution process. The feature
+must be merged into the Official Repository and expressly approved in writing
+by Authorized Maintainers as qualifying for commercial permission.
+
+A qualifying feature must:
+
+(a) Add a substantive new end-user capability with practical benefit to users
+    beyond merely obtaining commercial permission.
+(b) Be complete and usable in the application, not a placeholder, demonstration,
+    disabled stub, or artificial splitting of a trivial change.
+(c) Meet the project's applicable quality requirements, including documentation
+    and tests appropriate to the feature.
+(d) Be lawfully contributed by someone with authority to grant the rights
+    described in Section 4.4.
+
+Cosmetic changes, renaming, formatting, dependency updates, documentation-only
+changes, and bug fixes alone do not satisfy the new-feature requirement.
+Such contributions may still be welcome, but do not by themselves qualify.
+
+Authorized Maintainers assess substantive usefulness and completion. They may
+reject token, sham, copied-without-authorization, or deliberately contrived
+contributions that do not meet these criteria. An interest in commercial
+permission does not itself disqualify a genuinely useful feature. Submitting
+or completing work does not guarantee acceptance or commercial approval.
+
+4.2 Approval and beneficiaries
+
+Commercial eligibility requires an explicit written approval in the Official
+Repository identifying:
+
+(a) The individual contributor.
+(b) The merged feature and its pull request or commit.
+(c) That commercial permission is granted under this license.
+(d) At most one legal organization, if any, also granted that permission.
+
+The individual and the one organization expressly named in that approval
+may exercise the Section 2 permissions for Commercial Use without a license fee.
+An organization may qualify through its contributor only when that organization
+is expressly named in the approval.
+
+Permission is nontransferable and does not automatically cover an employer,
+affiliate, subsidiary, client, successor, or other organization. Other users
+of a hosted copy still need their own approval for their Commercial Use.
+No beneficiary may sublicense commercial eligibility.
+
+Commercial approval does not permit code reuse in other applications,
+redistribution of modified versions, or public hosting of modified versions.
+All other restrictions continue to apply.
+
+4.3 Misrepresentation and continuing conditions
+
+Approval obtained through material misrepresentation, false authorship claims,
+or a sham contribution that fails Section 4.1 is invalid and grants no commercial
+permission. Such conduct is a license violation; this license does not determine
+whether it constitutes fraud under applicable law.
+
+Valid approval remains subject to compliance with this license. It covers
+Software offered under this version of the license and does not promise rights
+to future releases offered under different terms.
+
+4.4 Contribution permissions
+
+By intentionally submitting a contribution for inclusion in the Official
+Repository under this license, you represent that you have authority to do so
+and grant the Licensors and Authorized Maintainers a non-exclusive, worldwide,
+royalty-free copyright license to use, reproduce, modify, and distribute that
+contribution as part of the official Dashora Organizer project under this
+license, including the commercial permissions described here.
+
+You retain ownership of your contribution. This grant allows maintainers to
+review and integrate it and publish official releases; it does not authorize
+other users to distribute their own modified versions. Contributions accepted
+under separate written terms remain governed by those terms.
+
+5. Ownership and additional permissions
 
 The Licensors retain ownership of their respective materials. No trademark
 rights, endorsement, or rights beyond those expressly stated are granted.
 For code reuse, redistribution of modifications, or other uses outside this
 license, obtain separate written permission from the applicable Licensors.
 
-5. Termination
+6. Termination
 
 Your permissions under this license terminate automatically if you violate its
 terms. Upon termination, stop using, copying, modifying, hosting, and distributing
 the Software under this license. Termination does not affect rights independently
 available under applicable law or a separate license.
 
-6. Earlier licenses
+7. Earlier licenses
 
 This license applies only to copies offered under it. It does not revoke or
-restrict permissions already granted for earlier copies under the MIT License
-or another license. Such copies remain subject to the license under which they
-were received.
+restrict permissions already granted for earlier copies under the MIT License,
+Dashora Organizer Source-Available License 1.0, or another license. Such copies
+remain subject to the license under which they were received. The contribution
+requirement is not retroactive.
 
-7. Disclaimer of warranty and limitation of liability
+8. Disclaimer of warranty and limitation of liability
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

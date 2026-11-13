@@ -728,17 +728,48 @@ Keep independent backups of important data and use the app at your own discretio
 
 ## License
 
-Dashora uses the [Dashora Organizer Source-Available License 1.0](./LICENSE).
+Dashora uses the [Dashora Organizer Source-Available License 1.1](./LICENSE).
 It is **source-available, not open source**.
 
-| You may, without a license fee | Requires separate written permission |
-| --- | --- |
-| Use Dashora, including in commercial organizations and institutions | Reuse its code in another app, product, library, or codebase |
-| Self-host or redistribute unmodified Dashora with its license and notices | Distribute modified versions or modified source code |
-| Modify Dashora for personal or internal organizational use | Host modified versions for people outside that personal/internal use |
+### Free Noncommercial Use
+
+You may use Dashora for noncommercial purposes, self-host or redistribute
+unmodified copies with their notices, and make private personal/internal
+modifications. Public forks and pull requests are permitted for contribution
+review, not for distributing a separate modified product.
+
+### Commercial Use Requires a Qualifying Contribution
+
+**All business use requires approval**, including internal company use and
+business use of the hosted app, even if Dashora itself generates no revenue.
+
+1. **Contribute at least one complete new feature** with genuine practical
+   benefit to users.
+2. **Have it merged** into the [official repository](https://github.com/mohaidr/focus-board).
+3. **Receive explicit written commercial approval** from authorized maintainers
+   in the repository, identifying you and the merged feature.
+
+Approval covers **the individual contributor and, if explicitly named, one
+organization**, without a license fee. It is not transferable and does not
+automatically cover employers, clients, affiliates, or other organizations.
+Users of a hosted copy still need approval for their own business use.
+
+**A push, pull request, or merge alone is not enough.** Cosmetic changes,
+documentation-only changes, bug fixes alone, placeholders, and token features
+do not meet the new-feature requirement. Features must be complete, genuinely
+useful, and meet applicable quality requirements. Sham contributions and material
+misrepresentation do not earn commercial rights; wanting those rights does not
+disqualify a genuinely useful contribution. Acceptance and approval are not guaranteed.
+
+### Restrictions Still Apply
+
+Commercial approval does **not** permit reusing code in other apps, distributing
+modified versions outside contribution review, or publicly hosting modified
+versions. Those activities require separate written permission.
 
 These restrictions do not apply to your own content or replace third-party
 component licenses. See the [full license](./LICENSE) for the governing terms.
 
-**Earlier MIT copies keep their MIT permissions.** This license change cannot
-revoke rights already granted for those copies.
+**Earlier licenses still apply to earlier copies.** This change cannot revoke
+permissions already granted under MIT or license version 1.0, and the contribution
+requirement is not retroactive.
