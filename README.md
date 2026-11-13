@@ -728,59 +728,52 @@ Keep independent backups of important data and use the app at your own discretio
 
 ## License
 
-Dashora uses the [Dashora Organizer Source-Available License 1.2](./LICENSE).
+Dashora uses the [Dashora Organizer Source-Available License 1.3](./LICENSE).
 It is **source-available, not open source**.
 
-### Free Noncommercial Use
+### Use It Freely, Give Back Public Improvements
 
-You may use Dashora for noncommercial purposes, self-host or redistribute
-unmodified copies with their notices, and make private personal/internal
-modifications. Public forks and pull requests are permitted for contribution
-review, not for distributing a separate modified product.
+**Anyone can use Dashora, including businesses and institutions.**
+There is no minimum contribution or commercial approval process.
 
-### Contribute a Useful Feature, Unlock Commercial Use
+| What you want to do | What is required |
+| --- | --- |
+| Use Dashora personally or internally at work | No contribution required |
+| Extend it for private or internal use | Keep your changes private if you wish |
+| Publicly host unmodified Dashora, free or paid | Keep its license and notices |
+| Publicly host your modified version, free or paid | Have its new features and functional changes merged into the official repository first; link to your version's public source |
+| Publish a source fork or submit a pull request | Keep the license and notices; a merge is not required just to share source |
 
-We want to encourage contributions, not add an approval hurdle.
+**The idea is simple:** use and improve Dashora internally however you like.
+If you offer your improvements through a public service, bring them back to
+the [official repository](https://github.com/mohaidr/focus-board) so everyone
+can benefit.
 
-1. **Contribute at least one complete new feature** with genuine practical
-   benefit to users.
-2. **Have it merged by maintainers** into the
-   [official repository](https://github.com/mohaidr/focus-board).
-3. **Commercial permission is yours automatically** once the qualifying feature
-   is merged. No separate application or written approval is needed.
+### Before Hosting Your Changes Publicly
 
-**Small features are welcome:** what matters is a complete, usable new capability
-that genuinely helps people and meets the project's quality requirements.
-Wanting commercial rights is a welcome reason to contribute.
+1. Submit the new features and functional changes you plan to offer.
+2. Work with maintainers to have them merged into the official repository.
+3. Host your version and give users a clear link to its public source,
+   including build/run instructions.
 
-Permission covers **you as the individual contributor**, without a license fee.
-You may also name **one legal organization** in the qualifying pull request or
-a public comment on it; no additional approval is required. Permission does not
-automatically cover other employers, clients, or affiliates and is not transferable.
+Repeat this for later functional changes before putting them online.
+There is no separate commercial approval after merging, and people using
+your hosted service do not need to contribute themselves.
 
-The contribution requirement applies to **all business use**, including internal
-company use and business use of the hosted app. Other users of a hosted copy
-still need to qualify for their own business use.
+**Keep private things private:** customer data, passwords, deployment settings,
+and independent software do not need to be contributed. Branding-only and
+cosmetic changes without functional effects do not need to be merged.
 
-Cosmetic changes, documentation-only changes, and bug fixes are welcome but do
-not alone meet the new-feature requirement. Unmerged work, placeholders, token
-changes without real new capability, and false authorship claims do not qualify.
-Normal contribution review determines whether a feature is ready to merge;
-there is no separate commercial eligibility review afterward.
+Public hosting includes customer-facing services behind a login or paywall.
+Charging for hosting, support, or services is allowed.
 
-Once validly earned, permission is not lost just because the feature is later
-changed or removed, or maintainers change their opinion of it. The license's
-other conditions still apply.
+**Plan ahead:** a public fork or open pull request is not a merge. Maintainers
+can request changes or decline a contribution, so acceptance is not guaranteed.
+Until the functional changes are merged, keep that version private/internal.
 
-### Restrictions Still Apply
-
-Commercial permission does **not** permit reusing code in other apps, distributing
-modified versions outside contribution review, or publicly hosting modified
-versions. Those activities require separate written permission.
-
-These restrictions do not apply to your own content or replace third-party
-component licenses. See the [full license](./LICENSE) for the governing terms.
+Redistributed code and modifications keep this license and its notices.
+Your content remains yours, and third-party components keep their own licenses.
+See the [full license](./LICENSE) for the governing terms.
 
 **Earlier licenses still apply to earlier copies.** This change cannot revoke
-permissions already granted under MIT or license versions 1.0/1.1, and the contribution
-requirement is not retroactive.
+permissions already granted under MIT or earlier Dashora license versions.
