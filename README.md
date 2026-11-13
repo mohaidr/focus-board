@@ -728,7 +728,7 @@ Keep independent backups of important data and use the app at your own discretio
 
 ## License
 
-Dashora uses the [Dashora Organizer Source-Available License 1.1](./LICENSE).
+Dashora uses the [Dashora Organizer Source-Available License 1.2](./LICENSE).
 It is **source-available, not open source**.
 
 ### Free Noncommercial Use
@@ -738,32 +738,43 @@ unmodified copies with their notices, and make private personal/internal
 modifications. Public forks and pull requests are permitted for contribution
 review, not for distributing a separate modified product.
 
-### Commercial Use Requires a Qualifying Contribution
+### Contribute a Useful Feature, Unlock Commercial Use
 
-**All business use requires approval**, including internal company use and
-business use of the hosted app, even if Dashora itself generates no revenue.
+We want to encourage contributions, not add an approval hurdle.
 
 1. **Contribute at least one complete new feature** with genuine practical
    benefit to users.
-2. **Have it merged** into the [official repository](https://github.com/mohaidr/focus-board).
-3. **Receive explicit written commercial approval** from authorized maintainers
-   in the repository, identifying you and the merged feature.
+2. **Have it merged by maintainers** into the
+   [official repository](https://github.com/mohaidr/focus-board).
+3. **Commercial permission is yours automatically** once the qualifying feature
+   is merged. No separate application or written approval is needed.
 
-Approval covers **the individual contributor and, if explicitly named, one
-organization**, without a license fee. It is not transferable and does not
-automatically cover employers, clients, affiliates, or other organizations.
-Users of a hosted copy still need approval for their own business use.
+**Small features are welcome:** what matters is a complete, usable new capability
+that genuinely helps people and meets the project's quality requirements.
+Wanting commercial rights is a welcome reason to contribute.
 
-**A push, pull request, or merge alone is not enough.** Cosmetic changes,
-documentation-only changes, bug fixes alone, placeholders, and token features
-do not meet the new-feature requirement. Features must be complete, genuinely
-useful, and meet applicable quality requirements. Sham contributions and material
-misrepresentation do not earn commercial rights; wanting those rights does not
-disqualify a genuinely useful contribution. Acceptance and approval are not guaranteed.
+Permission covers **you as the individual contributor**, without a license fee.
+You may also name **one legal organization** in the qualifying pull request or
+a public comment on it; no additional approval is required. Permission does not
+automatically cover other employers, clients, or affiliates and is not transferable.
+
+The contribution requirement applies to **all business use**, including internal
+company use and business use of the hosted app. Other users of a hosted copy
+still need to qualify for their own business use.
+
+Cosmetic changes, documentation-only changes, and bug fixes are welcome but do
+not alone meet the new-feature requirement. Unmerged work, placeholders, token
+changes without real new capability, and false authorship claims do not qualify.
+Normal contribution review determines whether a feature is ready to merge;
+there is no separate commercial eligibility review afterward.
+
+Once validly earned, permission is not lost just because the feature is later
+changed or removed, or maintainers change their opinion of it. The license's
+other conditions still apply.
 
 ### Restrictions Still Apply
 
-Commercial approval does **not** permit reusing code in other apps, distributing
+Commercial permission does **not** permit reusing code in other apps, distributing
 modified versions outside contribution review, or publicly hosting modified
 versions. Those activities require separate written permission.
 
@@ -771,5 +782,5 @@ These restrictions do not apply to your own content or replace third-party
 component licenses. See the [full license](./LICENSE) for the governing terms.
 
 **Earlier licenses still apply to earlier copies.** This change cannot revoke
-permissions already granted under MIT or license version 1.0, and the contribution
+permissions already granted under MIT or license versions 1.0/1.1, and the contribution
 requirement is not retroactive.

@@ -1,4 +1,4 @@
-Dashora Organizer Source-Available License 1.1
+Dashora Organizer Source-Available License 1.2
 
 1. Scope
 
@@ -8,7 +8,7 @@ the copyright holders offering those materials under this license.
 
 The "Official Repository" is https://github.com/mohaidr/focus-board.
 "Authorized Maintainers" means maintainers authorized by the applicable
-Licensors to accept contributions and approve commercial eligibility.
+Licensors to review and merge contributions into the Official Repository.
 
 The "Software" includes the application as accessed through a hosted service,
 not only downloaded or self-hosted copies.
@@ -38,7 +38,8 @@ non-exclusive, royalty-free license to:
 (d) Modify the Software solely for your own personal use or your organization's
     internal use, provided the modified version remains a version of Dashora
     Organizer and complies with Section 3. Commercial Use of either an
-    unmodified or privately modified version also requires Section 4 approval.
+    unmodified or privately modified version also requires qualification
+    under Section 4.
 (e) Publish proposed modifications solely for contribution review through the
     Official Repository's public pull-request process, including a public fork
     or branch necessary for that process, subject to Section 4. This exception
@@ -46,8 +47,8 @@ non-exclusive, royalty-free license to:
     public use.
 
 No license fee is required for these permitted activities.
-Commercial Use is permitted without a license fee only after qualification
-and explicit approval under Section 4.
+Commercial Use is permitted without a license fee upon qualification under
+Section 4, with no separate commercial approval required.
 
 3. Restrictions
 
@@ -64,9 +65,9 @@ Without separate written permission from the applicable Licensors, you may not:
 (d) Remove or misrepresent the Software's copyright, attribution, or license
     notices.
 
-Commercial Use without the qualification and approval required by Section 4
-is not permitted. A public push, pull request, or merge alone grants no
-commercial permission.
+Commercial Use requires qualification under Section 4. A public push or an
+unmerged pull request does not qualify; a qualifying feature merged by
+Authorized Maintainers grants commercial permission automatically.
 
 Copying the Software to deploy Dashora Organizer or to make the private
 modifications permitted by Section 2 is not prohibited code reuse under
@@ -84,8 +85,10 @@ license to restrict.
 
 To qualify, an individual must author and publicly submit at least one complete
 new feature through the Official Repository's contribution process. The feature
-must be merged into the Official Repository and expressly approved in writing
-by Authorized Maintainers as qualifying for commercial permission.
+must be merged into the Official Repository by Authorized Maintainers.
+Commercial permission begins automatically when that qualifying feature is
+merged. No separate application, written approval, or commercial authorization
+is required.
 
 A qualifying feature must:
 
@@ -102,44 +105,48 @@ Cosmetic changes, renaming, formatting, dependency updates, documentation-only
 changes, and bug fixes alone do not satisfy the new-feature requirement.
 Such contributions may still be welcome, but do not by themselves qualify.
 
-Authorized Maintainers assess substantive usefulness and completion. They may
-reject token, sham, copied-without-authorization, or deliberately contrived
-contributions that do not meet these criteria. An interest in commercial
-permission does not itself disqualify a genuinely useful feature. Submitting
-or completing work does not guarantee acceptance or commercial approval.
+Authorized Maintainers assess usefulness, completion, and quality during normal
+contribution review. Merging a genuinely useful, complete new feature records
+its acceptance for this license; no further eligibility review is required.
+Features need not be large to qualify. Seeking commercial permission is a
+welcome reason to contribute and does not disqualify a useful feature.
+Submitting work does not guarantee that it will be merged.
 
-4.2 Approval and beneficiaries
+4.2 Automatic permission and beneficiaries
 
-Commercial eligibility requires an explicit written approval in the Official
-Repository identifying:
+The qualifying individual may exercise the Section 2 permissions for Commercial
+Use without a license fee from the time of the qualifying merge. The public
+merged pull request or commit identifying the contributor and feature is the
+record of qualification.
 
-(a) The individual contributor.
-(b) The merged feature and its pull request or commit.
-(c) That commercial permission is granted under this license.
-(d) At most one legal organization, if any, also granted that permission.
-
-The individual and the one organization expressly named in that approval
-may exercise the Section 2 permissions for Commercial Use without a license fee.
-An organization may qualify through its contributor only when that organization
-is expressly named in the approval.
+The contributor may also extend this permission to one legal organization by
+identifying that organization in the qualifying pull request or a public
+comment on it. This designation requires no maintainer approval and takes
+effect once both the qualifying merge and the designation have occurred.
+It does not delay the individual's permission. At most one organization may
+be designated, and that designation is nontransferable.
 
 Permission is nontransferable and does not automatically cover an employer,
 affiliate, subsidiary, client, successor, or other organization. Other users
-of a hosted copy still need their own approval for their Commercial Use.
+of a hosted copy still need their own qualification for their Commercial Use.
 No beneficiary may sublicense commercial eligibility.
 
-Commercial approval does not permit code reuse in other applications,
+Commercial permission does not permit code reuse in other applications,
 redistribution of modified versions, or public hosting of modified versions.
 All other restrictions continue to apply.
 
 4.3 Misrepresentation and continuing conditions
 
-Approval obtained through material misrepresentation, false authorship claims,
-or a sham contribution that fails Section 4.1 is invalid and grants no commercial
-permission. Such conduct is a license violation; this license does not determine
-whether it constitutes fraud under applicable law.
+Knowingly false authorship claims or other material misrepresentation used to
+claim qualification grant no commercial permission. A placeholder or token
+change that adds no genuine new capability does not qualify merely because
+it was merged. These conditions do not disqualify a good-faith, useful feature
+simply because its author wanted commercial permission.
 
-Valid approval remains subject to compliance with this license. It covers
+Once validly earned, permission is not lost merely because the feature is later
+changed, replaced, or removed, or because maintainers later change their opinion
+of its usefulness. Permission remains subject to compliance with this license.
+It covers
 Software offered under this version of the license and does not promise rights
 to future releases offered under different terms.
 
@@ -175,7 +182,7 @@ available under applicable law or a separate license.
 
 This license applies only to copies offered under it. It does not revoke or
 restrict permissions already granted for earlier copies under the MIT License,
-Dashora Organizer Source-Available License 1.0, or another license. Such copies
+Dashora Organizer Source-Available License 1.0 or 1.1, or another license. Such copies
 remain subject to the license under which they were received. The contribution
 requirement is not retroactive.
 
