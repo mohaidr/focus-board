@@ -6,7 +6,7 @@ Capture a thought. Pick one next step. Keep the rest out of the way.
 
 **No account. No app backend. No automatic cloud sync.**
 
-[Open Dashora](https://dashora.netlify.app/) · [Get started](#start-here) · [Explore features](#features-at-a-glance)
+#### [Try The App](https://dashora.netlify.app/) · [Get started](#start-here) · [Explore features](#features-at-a-glance)
 
 > **Keep a recovery copy.** Your content lives in this browser on this device.
 > Clearing site data can remove it. Export important work or connect a backup
