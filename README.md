@@ -20,6 +20,7 @@ You do not need to configure everything. Start with one board and one item.
 2. **Create a board:** select **+ New Board**, choose a type, name, and color.
    - **Task:** things to do, with To Do / In Progress / Done columns.
    - **Reference:** things to keep, such as articles, notes, or sketches.
+   - **Appointments:** daily schedules with start/end times and reusable contacts.
 3. **Add one item and save it.** Expand it when you want to add more detail.
 
 **Next, protect your work:** open **Backups**, select a folder, and grant
@@ -74,6 +75,7 @@ medical product.
 
 - **Task boards:** move work through **To Do → In Progress → Done**.
 - **Reference boards:** keep information in a flat list, without task statuses.
+- **Appointments boards:** schedule people and meetings by day and time.
 - **Find things quickly:** global search covers boards; a local filter narrows one board.
 - **Arrange your space:** rename boards, choose colors, and drag boards into your preferred order.
 
@@ -91,6 +93,47 @@ medical product.
 - Smaller screens have a collapsible navigation sidebar.
 
 </details>
+
+### Appointments and Contacts
+
+Create a board with the **Appointments** type. Each board contains many
+appointments; contacts are shared across all appointment boards.
+
+- Pick a day from the month calendar or date picker. Use **Today** or the
+  previous/next-day buttons to navigate.
+- Click an hour in the schedule or **+ Appointment**. Enter a title, date,
+  start/end time, and person. Times use the device's local clock; appointments
+  must end after they start on the same day.
+- Choose a saved contact, or enter a new person's name and optional phone,
+  email, and contact notes. **Save contact for future appointments** is checked
+  by default for new appointments. Uncheck it to keep the details only on that
+  appointment.
+- Alternatively, open **Contacts** in the sidebar and choose **+ Create
+  contact**, without creating an appointment. Click a contact to view or edit
+  their details; changes appear in every linked appointment.
+- Add an appointment description and optional location or meeting link.
+  Click a schedule entry to see its full details, edit/reschedule, or delete it.
+- In appointment details, choose **Add to Calendar** to download an `.ics`
+  event for your calendar app, using the same export as tasks. It includes the
+  selected start/end times, person, description, location, and a 15-minute alert.
+  This is a one-time export; later changes are not synced.
+- Overlaps warn across all appointment boards. You can cancel or save anyway.
+  Adjacent appointments (one ending when another begins) do not conflict.
+- Appointments and contacts are stored locally and included in JSON exports,
+  imports, and folder backups. Deleting a board or appointment keeps shared
+  contacts. Only empty boards can change to/from the Appointments type.
+- Every saved contact/appointment creation or edit (including rescheduling),
+  appointment deletion, and board creation/edit/deletion requests a new folder
+  backup after local saving succeeds. Import and restore also request a backup
+  of the resulting data. Connect a folder in **Backups** and grant write access
+  to enable these automatic backups; failures are reported without undoing a
+  successful local save.
+- Global search also finds appointments by title, description, person/contact
+  details, location, board name, or date. Opening a result takes you to its day.
+
+The first version does not include recurring appointments, appointment
+reminders, external calendar sync, or automatic timezone conversion.
+Appointments do not count as tasks in the dashboard.
 
 ### Task Flow
 

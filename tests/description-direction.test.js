@@ -288,6 +288,7 @@ test('search results forward saved direction for both board types', () => {
       [index + 1, 'Title', 'word', '', 0, 0, 1, 'Board', '#123456', 0, null, type, 0, 0, null, 'markdown', 'rtl']) }] },
     decryptedProtectedItems: new Map(), expandedItems: new Set(),
     isItemLocked: () => false, esc, escAttr: esc,
+    searchAppointments: () => [], renderAppointmentSearchMatches: () => '',
     renderItem: (...args) => { calls.push(args); return 'task'; },
     renderRefItem: (...args) => { calls.push(args); return 'reference'; },
   });

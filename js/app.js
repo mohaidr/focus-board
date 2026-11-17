@@ -51,6 +51,7 @@ let itemNoteEditor = null;
 let noteDragState = null;
 let backupWriteQueue = Promise.resolve();
 let pendingBackupWrites = 0;
+let boardSaveInProgress = false;
 let itemEditorChangeRevision = 0;
 
 
@@ -539,10 +540,14 @@ function addToCalendar(event, id) {
 
   const [title, desc, dueDate] = row[0].values[0];
   const due = new Date(dueDate);
-  const dtStart = due.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  // Event lasts 1 hour
-  const endDate = new Date(due.getTime() + 3600000);
-  const dtEnd = endDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  downloadCalendarEvent({
+    id, title, description: desc, start: due, end: new Date(due.getTime() + 3600000),
+  });
+}
+
+function downloadCalendarEvent({ id, title, description, start, end, location = '' }) {
+  const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const dtEnd = end.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
   const ics = [
@@ -555,7 +560,8 @@ function addToCalendar(event, id) {
     `DTSTAMP:${now}`,
     `UID:dashora-${id}-${Date.now()}@dashora`,
     `SUMMARY:${icsEscape(title)}`,
-    desc ? `DESCRIPTION:${icsEscape(desc)}` : '',
+    description ? `DESCRIPTION:${icsEscape(description)}` : '',
+    location ? `LOCATION:${icsEscape(location)}` : '',
     'BEGIN:VALARM',
     'TRIGGER:-PT15M',
     'ACTION:DISPLAY',
@@ -576,7 +582,7 @@ function addToCalendar(event, id) {
 
 function icsEscape(str) {
   if (!str) return '';
-  return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n?|\n/g, '\\n');
 }
 
 function isFileSystemBackupSupported() {
@@ -790,6 +796,8 @@ function snapshotCurrentData() {
     items: db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id'),
     followups: db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id'),
     appSettings: db.exec('SELECT * FROM app_settings ORDER BY key'),
+    contacts: db.exec('SELECT * FROM contacts ORDER BY id'),
+    appointments: db.exec('SELECT * FROM appointments ORDER BY date, start_time, id'),
   };
 }
 
@@ -908,6 +916,10 @@ function getBackupReasonLabel(reason) {
     'new-board': 'New board', 'new-item': 'New item', 'new-followup': 'New follow-up',
     'item-updated': 'Item updated', 'item-deleted': 'Item deleted', 'note-added': 'Note added', 'note-updated': 'Note updated',
     'note-deleted': 'Note deleted', 'notes-reordered': 'Notes reordered',
+    'appointment-created': 'Appointment created', 'appointment-updated': 'Appointment updated',
+    'appointment-deleted': 'Appointment deleted', 'contact-created': 'Contact created', 'contact-updated': 'Contact updated',
+    'board-updated': 'Board updated', 'board-deleted': 'Board deleted',
+    'data-imported': 'Data imported', 'backup-restored': 'Backup restored',
   })[reason] || 'Manual';
 }
 
@@ -929,7 +941,10 @@ function applySnapshot(snapshot) {
     throw new Error('Invalid backup data');
   }
   validateDescriptionMetadata(snapshot.items);
+  validateAppointmentSnapshot(snapshot);
 
+  db.run('DELETE FROM appointments');
+  db.run('DELETE FROM contacts');
   db.run('DELETE FROM items');
   db.run('DELETE FROM sections');
   db.run('DELETE FROM followups');
@@ -976,6 +991,8 @@ function applySnapshot(snapshot) {
       db.run('INSERT INTO app_settings (key, value) VALUES (?, ?)', row);
     }
   }
+
+  restoreAppointmentSnapshot(snapshot);
 
   unlockedProtectedItems.clear();
   decryptedProtectedItems.clear();
@@ -1045,6 +1062,8 @@ function renderBackupTab() {
     const itemCount = b.snapshot && b.snapshot.items && b.snapshot.items[0] && b.snapshot.items[0].values
       ? b.snapshot.items[0].values.length
       : 0;
+    const appointmentCount = b.snapshot?.appointments?.[0]?.values?.length || 0;
+    const contactCount = b.snapshot?.contacts?.[0]?.values?.length || 0;
     const reasonLabel = getBackupReasonLabel(b.reason);
 
     return `
@@ -1054,7 +1073,7 @@ function renderBackupTab() {
             <div class="backup-title">Backup ${backups.length - idx}</div>
             <div class="backup-meta">${esc(reasonLabel)} · ${esc(formatBackupDate(b.createdAt))}</div>
           </div>
-          <span class="backup-pill ${b.protected ? 'backup-pill-protected' : ''}">${b.protected ? 'Protected · ' : ''}${secCount} boards · ${itemCount} items</span>
+          <span class="backup-pill ${b.protected ? 'backup-pill-protected' : ''}">${b.protected ? 'Protected · ' : ''}${secCount} boards · ${itemCount} items${appointmentCount ? ` · ${appointmentCount} appointments` : ''}${contactCount ? ` · ${contactCount} contacts` : ''}</span>
         </div>
         <div class="backup-actions">
           <button class="btn btn-primary btn-sm" onclick="restoreBackup('${escAttr(b.id)}')">Restore</button>
@@ -1097,7 +1116,8 @@ async function restoreBackup(backupId) {
     const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
     activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
     activeView = 'board';
-    persist();
+    await persist();
+    await requestChangeBackup('backup-restored');
     renderSidebar();
     renderMain();
     toast('Backup restored');
@@ -1193,6 +1213,10 @@ function renderSidebar() {
 
   let html = `
     <div class="nav-label">Utilities</div>
+    <button type="button" class="nav-item contacts-nav ${activeView === 'contacts' ? 'active' : ''}" ${activeView === 'contacts' ? 'aria-current="page"' : ''} onclick="selectContactsTab()">
+      <span class="nav-dot" style="background:var(--accent)"></span>
+      <span class="nav-name">Contacts</span>
+    </button>
     <button type="button" class="nav-item dashboard-nav ${activeView === 'dashboard' ? 'active' : ''}" ${activeView === 'dashboard' ? 'aria-current="page"' : ''} onclick="selectDashboardTab()">
       <span class="nav-dot" style="background:var(--success)"></span>
       <span class="nav-name">Dashboard</span>
@@ -1262,6 +1286,13 @@ function renderSidebar() {
     html += `<div class="nav-toggle" onclick="showLessBoards('ref')">▲ Show less</div>`;
   }
 
+  const appointmentRows = allRows.filter(row => row[3] === 'appointment');
+  html += '<div class="nav-divider"></div><div class="nav-label">Appointments</div>';
+  if (!appointmentRows.length) html += '<div class="nav-empty-hint">No appointment boards</div>';
+  for (const [id, name, color] of appointmentRows) {
+    const total = db.exec('SELECT COUNT(*) FROM appointments WHERE section_id = ?', [id])[0].values[0][0];
+    html += renderNavItem(id, name, color, activeView === 'board' && id === activeSectionId ? 'active' : '', `${total}`);
+  }
   nav.innerHTML = html;
 }
 
@@ -1310,6 +1341,11 @@ function renderMain() {
   const body      = document.getElementById('mainBody');
   const searchTerm = sectionSearchTerm;
 
+  if (activeView === 'contacts') {
+    renderContacts();
+    return;
+  }
+
   if (activeView === 'dashboard') {
     renderDashboard();
     return;
@@ -1346,6 +1382,10 @@ function renderMain() {
   if (!sec.length || !sec[0].values.length) { activeSectionId = null; renderMain(); return; }
   const [sid, sname, scolor, stype] = sec[0].values[0];
   const boardType = stype || 'task';
+  if (boardType === 'appointment') {
+    renderAppointmentBoard(sid, sname, scolor);
+    return;
+  }
   const total = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ?', [sid])[0].values[0][0];
 
   header.innerHTML = `
@@ -2115,6 +2155,7 @@ function onSearch() {
 function renderSearchResults(term) {
   const body   = document.getElementById('mainBody');
   const header = document.getElementById('mainHeader');
+  const appointmentMatches = searchAppointments(term);
 
   const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
@@ -2149,10 +2190,10 @@ function renderSearchResults(term) {
     <div class="main-header-left">
       <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
       <h2>Search Results</h2>
-      <span class="item-total">${rows.length} match${rows.length !== 1 ? 'es' : ''}</span>
+      <span class="item-total">${rows.length + appointmentMatches.length} match${rows.length + appointmentMatches.length !== 1 ? 'es' : ''}</span>
     </div>`;
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && appointmentMatches.length === 0) {
     body.innerHTML = '<div class="empty-state"><h3>No matches</h3><p>Try different keywords</p></div>';
     return;
   }
@@ -2180,7 +2221,7 @@ function renderSearchResults(term) {
     }
   }
 
-  body.innerHTML = html;
+  body.innerHTML = html + renderAppointmentSearchMatches(appointmentMatches);
 }
 
 
@@ -2314,53 +2355,111 @@ function renderBoardTypeOptions() {
   });
 }
 
-function saveSection() {
+async function saveSection() {
+  if (boardSaveInProgress) { toast('Please wait for the board save to finish'); return; }
   const name   = document.getElementById('sectionName').value.trim();
   const editId = document.getElementById('editSectionId').value;
   let createdBoard = false;
   if (!name) { toast('Board name is required'); return; }
 
+  const original = editId ? db.exec('SELECT name, color, type FROM sections WHERE id = ?', [parseInt(editId)]) : [];
+  if (editId && (!original.length || !original[0].values.length)) { toast('Board no longer exists'); return; }
   if (editId) {
-    db.run('UPDATE sections SET name = ?, color = ?, type = ? WHERE id = ?', [name, selectedColor, selectedBoardType, parseInt(editId)]);
-  } else {
-    createdBoard = true;
-    const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM sections');
-    db.run('INSERT INTO sections (name, color, sort_order, type) VALUES (?, ?, ?, ?)',
-      [name, selectedColor, maxOrder[0].values[0][0] + 1, selectedBoardType]);
-    activeSectionId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+    const oldType = original[0].values[0][2];
+    if (oldType !== selectedBoardType && (oldType === 'appointment' || selectedBoardType === 'appointment')) {
+      const table = oldType === 'appointment' ? 'appointments' : 'items';
+      if (db.exec(`SELECT COUNT(*) FROM ${table} WHERE section_id = ?`, [parseInt(editId)])[0].values[0][0]) {
+        toast('Only empty boards can change to or from Appointments');
+        return;
+      }
+    }
   }
 
-  persist();
-  closeModal('sectionModal');
-  renderSidebar();
-  renderMain();
-
-  if (createdBoard) {
-    createBackup('new-board', { silent: true }).catch(() => {});
+  boardSaveInProgress = true;
+  const previousSection = activeSectionId;
+  try {
+    if (editId) {
+      db.run('UPDATE sections SET name = ?, color = ?, type = ? WHERE id = ?', [name, selectedColor, selectedBoardType, parseInt(editId)]);
+    } else {
+      const maxOrder = db.exec('SELECT COALESCE(MAX(sort_order), 0) FROM sections');
+      db.run('INSERT INTO sections (name, color, sort_order, type) VALUES (?, ?, ?, ?)',
+        [name, selectedColor, maxOrder[0].values[0][0] + 1, selectedBoardType]);
+      activeSectionId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+      createdBoard = true;
+    }
+    try {
+      await persist();
+    } catch (error) {
+      if (createdBoard) db.run('DELETE FROM sections WHERE id = ?', [activeSectionId]);
+      else db.run('UPDATE sections SET name = ?, color = ?, type = ? WHERE id = ?', [...original[0].values[0], parseInt(editId)]);
+      activeSectionId = previousSection;
+      throw error;
+    }
+    activeView = 'board';
+    closeModal('sectionModal');
+    renderSidebar();
+    renderMain();
+    toast(editId ? 'Board updated' : 'Board created');
+    await requestChangeBackup(createdBoard ? 'new-board' : 'board-updated');
+  } catch (error) {
+    console.error('Could not save board', error);
+    toast('Could not save board: ' + error.message);
+  } finally {
+    boardSaveInProgress = false;
   }
-
-  toast(editId ? 'Board updated' : 'Board created');
 }
 
-function deleteSection(id) {
-  if (!confirm('Delete this board and all its items?')) return;
-  const items = db.exec('SELECT id FROM items WHERE section_id = ?', [id]);
-  if (items.length) {
-    forgetItemViews(items[0].values.map(([itemId]) => itemId));
+async function deleteSection(id) {
+  if (boardSaveInProgress) { toast('Please wait for the board save to finish'); return; }
+  if (!confirm('Delete this board and all its items and appointments? Shared contacts will be kept.')) return;
+  boardSaveInProgress = true;
+  try {
+    const sections = db.exec('SELECT * FROM sections WHERE id = ?', [id]);
+    if (!sections.length || !sections[0].values.length) throw new Error('Board no longer exists');
+    const items = db.exec('SELECT * FROM items WHERE section_id = ?', [id]);
+    const followups = db.exec('SELECT * FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
+    const appointments = db.exec('SELECT * FROM appointments WHERE section_id = ?', [id]);
+    db.run('BEGIN TRANSACTION');
+    try {
+      db.run('DELETE FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
+      db.run('DELETE FROM items WHERE section_id = ?', [id]);
+      db.run('DELETE FROM appointments WHERE section_id = ?', [id]);
+      db.run('DELETE FROM sections WHERE id = ?', [id]);
+      db.run('COMMIT');
+    } catch (error) {
+      db.run('ROLLBACK');
+      throw error;
+    }
+    try {
+      await persist();
+    } catch (error) {
+      for (const [table, results] of [['sections', sections], ['items', items], ['followups', followups], ['appointments', appointments]]) {
+        if (!results.length) continue;
+        const { columns, values } = results[0];
+        for (const row of values) {
+          db.run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`, row);
+        }
+      }
+      throw error;
+    }
+    if (items.length) {
+      const idIndex = items[0].columns.indexOf('id');
+      forgetItemViews(items[0].values.map(row => row[idIndex]));
+    }
+    if (activeSectionId === id) {
+      const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
+      activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
+    }
+    renderSidebar();
+    renderMain();
+    toast('Board deleted');
+    await requestChangeBackup('board-deleted');
+  } catch (error) {
+    console.error('Could not delete board', error);
+    toast('Could not delete board: ' + error.message);
+  } finally {
+    boardSaveInProgress = false;
   }
-  db.run('DELETE FROM followups WHERE item_id IN (SELECT id FROM items WHERE section_id = ?)', [id]);
-  db.run('DELETE FROM items WHERE section_id = ?', [id]);
-  db.run('DELETE FROM sections WHERE id = ?', [id]);
-
-  if (activeSectionId === id) {
-    const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
-    activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
-  }
-
-  persist();
-  renderSidebar();
-  renderMain();
-  toast('Board deleted');
 }
 
 
@@ -3458,13 +3557,8 @@ function closeModal(id) {
    ================================================================ */
 
 function exportData() {
-  const sections = db.exec('SELECT * FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
-  const items    = db.exec('SELECT * FROM items ORDER BY section_id, sort_order, id');
-  const followups = db.exec('SELECT * FROM followups ORDER BY item_id, sort_order, id');
-  const appSettings = db.exec('SELECT * FROM app_settings ORDER BY key');
-
   const blob = new Blob(
-    [JSON.stringify({ sections, items, followups, appSettings, exported: new Date().toISOString() }, null, 2)],
+    [JSON.stringify({ ...snapshotCurrentData(), exported: new Date().toISOString() }, null, 2)],
     { type: 'application/json' }
   );
 
@@ -3486,10 +3580,13 @@ function importData(event) {
       const data = JSON.parse(e.target.result);
       if (!data.sections || !data.items) throw new Error('Invalid format');
       validateDescriptionMetadata(data.items);
+      validateAppointmentSnapshot(data);
       if (!confirm('This will replace ALL current data. Continue?')) return;
 
       await createBackup('pre-import', { silent: true, force: true });
 
+      db.run('DELETE FROM appointments');
+      db.run('DELETE FROM contacts');
       db.run('DELETE FROM items');
       db.run('DELETE FROM sections');
       db.run('DELETE FROM followups');
@@ -3532,6 +3629,8 @@ function importData(event) {
           db.run('INSERT INTO app_settings (key, value) VALUES (?, ?)', row);
       }
 
+      restoreAppointmentSnapshot(data);
+
       const first = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC LIMIT 1');
       activeSectionId = (first.length && first[0].values.length) ? first[0].values[0][0] : null;
       activeView = 'board';
@@ -3540,7 +3639,8 @@ function importData(event) {
       forgetItemViews();
       expandedItems.clear();
 
-      persist();
+      await persist();
+      await requestChangeBackup('data-imported');
       renderSidebar();
       renderMain();
       toast('Data imported');

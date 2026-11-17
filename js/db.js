@@ -196,6 +196,36 @@ function createTables() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      section_id INTEGER NOT NULL,
+      contact_id INTEGER,
+      person_name TEXT NOT NULL,
+      person_phone TEXT NOT NULL DEFAULT '',
+      person_email TEXT NOT NULL DEFAULT '',
+      person_notes TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL CHECK (end_time > start_time),
+      description TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
+      FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE SET NULL
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS appointments_day ON appointments(date, start_time)');
+
   // Follow-ups attached to task items
   db.run(`
     CREATE TABLE IF NOT EXISTS followups (

@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+const appointmentsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const date = '2026-11-08T12:00:00.000Z';
 
@@ -84,6 +85,188 @@ test('each successful content-change reason creates a new backup even when a bac
     'daily', 'new-item', 'item-updated', 'item-deleted', 'note-added', 'note-updated', 'note-deleted', 'notes-reordered',
   ]);
   assert.equal(files.size, 3);
+});
+
+function appointmentDataSetup({ accepted = true, failPersist = false } = {}) {
+  const base = setup();
+  const { context } = base;
+  const tables = {
+    sections: [{ id: 1, name: 'Meetings', color: '#123456', type: 'appointment' }],
+    items: [], followups: [], app_settings: [],
+    contacts: [{ id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes' }],
+    appointments: [{ id: 3, section_id: 1, contact_id: 8, person_name: 'Sam', person_phone: '123',
+      person_email: 'sam@example.test', person_notes: 'Contact notes', title: 'Planning',
+      date: '2026-11-17', start_time: '09:00', end_time: '10:00', description: 'Exact\nappointment details', location: 'Office' }],
+  };
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, { value: '', classList: { add() {}, remove() {} } });
+    return elements.get(id);
+  };
+  let persisted = false;
+  context.confirm = () => accepted;
+  context.boardSaveInProgress = false;
+  context.activeSectionId = 1;
+  context.selectedColor = '#654321';
+  context.selectedBoardType = 'appointment';
+  context.closeModal = () => {};
+  context.forgetItemViews = () => {};
+  context.unlockedProtectedItems = new Set();
+  context.decryptedProtectedItems = new Map();
+  context.expandedItems = new Set();
+  context.validateDescriptionMetadata = () => {};
+  context.document = { getElementById: element };
+  context.db.exec = sql => {
+    const table = sql.match(/FROM (sections|items|followups|appointments|contacts|app_settings)\b/)?.[1];
+    if (!table) throw new Error('Unexpected query: ' + sql);
+    const rows = tables[table];
+    if (!rows.length) return [];
+    const selected = sql.match(/^SELECT (.*?) FROM/)[1];
+    const columns = selected === '*' ? Object.keys(rows[0]) : selected.split(', ');
+    return [{ columns, values: rows.map(row => columns.map(column => row[column])) }];
+  };
+  context.db.run = (sql, params = []) => {
+    if (['BEGIN TRANSACTION', 'COMMIT', 'ROLLBACK'].includes(sql)) return;
+    const deleted = sql.match(/^DELETE FROM (\w+)/);
+    if (deleted) { tables[deleted[1]] = []; return; }
+    const inserted = sql.match(/^INSERT INTO (\w+) \(([^)]+)\)/);
+    if (inserted) {
+      tables[inserted[1]].push(Object.fromEntries(inserted[2].split(', ').map((column, index) => [column, params[index]])));
+      return;
+    }
+    if (sql.startsWith('UPDATE sections SET name')) {
+      Object.assign(tables.sections[0], { name: params[0], color: params[1], type: params[2] });
+      return;
+    }
+    throw new Error('Unexpected mutation: ' + sql);
+  };
+  context.persist = async () => {
+    if (failPersist) throw new Error('Browser storage is full');
+    persisted = true;
+  };
+  const requestBackup = context.requestChangeBackup;
+  context.requestChangeBackup = reason => {
+    assert.equal(persisted, true, 'Back up only after local saving succeeds');
+    return requestBackup(reason);
+  };
+  vm.runInContext(appointmentsSource, context);
+  vm.runInContext(app.slice(app.indexOf('async function saveSection('), app.indexOf('function onItemProtectionChange(')), context);
+  return { ...base, tables, element };
+}
+
+test('JSON export contains the same complete contacts and appointments as folder backups', async () => {
+  const { context, records } = appointmentDataSetup();
+  let blob;
+  const downloads = [];
+  context.Blob = Blob;
+  context.URL = { createObjectURL(value) { blob = value; return 'blob:export'; }, revokeObjectURL() {} };
+  context.document.createElement = () => ({ click() { downloads.push(this.download); } });
+  vm.runInContext(app.slice(app.indexOf('function exportData('), app.indexOf('function importData(')), context);
+  context.exportData();
+  const exported = JSON.parse(await blob.text());
+  await context.createBackup('manual', { createdAt: date, silent: true });
+  assert.deepEqual(exported.contacts, records[0].snapshot.contacts);
+  assert.deepEqual(exported.appointments, records[0].snapshot.appointments);
+  assert.equal(exported.contacts[0].values[0][1], 'Sam');
+  assert.equal(exported.appointments[0].values[0][11], 'Exact\nappointment details');
+  assert.match(downloads[0], /\.json$/);
+});
+
+test('each contact/appointment change creates its own backup, including repeated edits on the same day', async () => {
+  const { context, records, files, tables } = appointmentDataSetup();
+  await context.persist();
+  const reasons = ['contact-created', 'contact-updated', 'contact-updated', 'appointment-created',
+    'appointment-updated', 'appointment-updated', 'appointment-deleted'];
+  for (const [index, reason] of reasons.entries()) {
+    tables.contacts[0].notes = 'Version ' + index;
+    if (reason === 'appointment-deleted') tables.appointments = [];
+    await context.requestChangeBackup(reason);
+  }
+  assert.deepEqual(records.map(record => record.reason), reasons);
+  assert.deepEqual(records.map(record => record.snapshot.contacts[0].values[0][4]),
+    reasons.map((_, index) => 'Version ' + index));
+  assert.deepEqual(records.at(-1).snapshot.appointments, []);
+  assert.equal(files.size, 3);
+});
+
+test('editing an appointment board backs up its new metadata and linked appointments', async () => {
+  const { context, records, element } = appointmentDataSetup();
+  element('sectionName').value = 'Renamed meetings';
+  element('editSectionId').value = '1';
+  await context.saveSection();
+  assert.equal(records.length, 1);
+  assert.equal(records[0].reason, 'board-updated');
+  assert.equal(records[0].snapshot.sections[0].values[0][1], 'Renamed meetings');
+  assert.equal(records[0].snapshot.appointments[0].values.length, 1);
+  assert.equal(records[0].snapshot.contacts[0].values.length, 1);
+});
+
+test('deleting an appointment board backs up the deletion while preserving shared contacts', async () => {
+  const { context, records, tables } = appointmentDataSetup();
+  await context.deleteSection(1);
+  assert.deepEqual(tables.sections, []);
+  assert.deepEqual(tables.appointments, []);
+  assert.equal(tables.contacts.length, 1);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].reason, 'board-deleted');
+  assert.deepEqual(records[0].snapshot.sections, []);
+  assert.deepEqual(records[0].snapshot.appointments, []);
+  assert.equal(records[0].snapshot.contacts[0].values.length, 1);
+});
+
+test('canceled and failed board deletions do not back up a deletion that never succeeded', async () => {
+  for (const options of [{ accepted: false }, { failPersist: true }]) {
+    const { context, records, tables, warnings } = appointmentDataSetup(options);
+    const before = clone(tables);
+    await context.deleteSection(1);
+    assert.deepEqual(tables, before);
+    assert.deepEqual(records, []);
+    assert.equal(context.activeSectionId, 1);
+    if (options.failPersist) assert.ok(warnings.some(message => message.includes('Browser storage is full')));
+  }
+});
+
+test('failed board edits restore their metadata without creating a backup', async () => {
+  const { context, records, tables, element, warnings } = appointmentDataSetup({ failPersist: true });
+  const before = clone(tables);
+  element('sectionName').value = 'Unsaved name';
+  element('editSectionId').value = '1';
+  await context.saveSection();
+  assert.deepEqual(tables, before);
+  assert.deepEqual(records, []);
+  assert.ok(warnings.some(message => message.includes('Browser storage is full')));
+});
+
+test('restoring a backup creates a new backup of the restored contacts and appointments', async () => {
+  const { context, tables, records } = appointmentDataSetup();
+  const snapshot = clone(context.snapshotCurrentData());
+  tables.contacts[0].name = 'Newer name';
+  context.refreshBackupFiles = async () => [{ id: 'restore-me', snapshot }];
+  vm.runInContext(app.slice(app.indexOf('function applySnapshot('), app.indexOf('function formatBackupDate(')), context);
+  vm.runInContext(app.slice(app.indexOf('async function restoreBackup('), app.indexOf('async function deleteBackup(')), context);
+  await context.restoreBackup('restore-me');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].reason, 'backup-restored');
+  assert.deepEqual(records[0].snapshot.contacts, snapshot.contacts);
+  assert.deepEqual(records[0].snapshot.appointments, snapshot.appointments);
+});
+
+test('import creates both a recovery backup and a backup of the imported contacts and appointments', async () => {
+  const { context, tables, records } = appointmentDataSetup();
+  const imported = clone(context.snapshotCurrentData());
+  imported.contacts[0].values[0][1] = 'Imported name';
+  let pending;
+  context.FileReader = class {
+    readAsText() { pending = this.onload({ target: { result: JSON.stringify(imported) } }); }
+  };
+  vm.runInContext(app.slice(app.indexOf('function importData('), app.indexOf('function openSettingsModal(')), context);
+  context.importData({ target: { files: [{}], value: 'test.json' } });
+  await pending;
+  assert.equal(tables.contacts[0].name, 'Imported name');
+  assert.deepEqual(records.map(record => record.reason), ['pre-import', 'data-imported']);
+  assert.equal(records[0].snapshot.contacts[0].values[0][1], 'Sam');
+  assert.deepEqual(records[1].snapshot.contacts, imported.contacts);
+  assert.deepEqual(records[1].snapshot.appointments, imported.appointments);
 });
 
 test('queued backups retain their own snapshots rather than later edits', async () => {
