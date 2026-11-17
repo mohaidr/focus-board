@@ -145,7 +145,7 @@ function renderDashboard() {
         <div class="dashboard-filters">
           <div class="dashboard-board-filter">
             <label for="dashboardBoard">Task board</label>
-            <input id="dashboardBoardSearch" class="section-search" type="search" aria-label="Search task boards"
+            <input id="dashboardBoardSearch" class="search-box" type="search" aria-label="Search task boards"
               placeholder="Search task boards" value="${escAttr(dashboardBoardSearch)}" oninput="filterDashboardBoards(this.value)">
             <select id="dashboardBoard" class="form-select" onchange="updateDashboardFilters()">
               <option value="">All task boards</option>

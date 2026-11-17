@@ -1232,7 +1232,7 @@ function renderSidebar() {
     return;
   }
 
-  html += `<input class="section-search sidebar-board-search" type="search" id="sidebarBoardSearch"
+  html += `<input class="search-box sidebar-board-search" type="search" id="sidebarBoardSearch"
     aria-label="Search boards" placeholder="Search boards" value="${escAttr(sidebarSearchTerm)}"
     oninput="filterSidebarBoards(this.value)">`;
   for (const [type, label] of [['task', '📋 Task Boards'], ['reference', '📖 Reference Boards'], ['appointment', 'Appointments']]) {

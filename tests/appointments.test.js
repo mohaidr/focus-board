@@ -326,6 +326,7 @@ test('board navigation renders appointment boards and still works with no boards
   vm.runInContext(app.slice(app.indexOf('function renderSidebar('), app.indexOf('function renderMain(')), context);
   context.renderSidebar();
   assert.match(element('sidebarNav').innerHTML, /Meetings &lt;work&gt;/);
+  assert.match(element('sidebarNav').innerHTML, /class="search-box sidebar-board-search"[^>]*id="sidebarBoardSearch"/);
   context.db.exec = () => [{ values: [[0]] }];
   context.renderSidebar();
   assert.match(element('sidebarNav').innerHTML, /No boards yet/);
