@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'dashboard.js'), 'utf8');
+const paging = fs.readFileSync(path.join(__dirname, '..', 'js', 'paging.js'), 'utf8');
 const boards = [{ id: 1, name: 'Work' }, { id: 2, name: 'Home' }];
 const now = new Date(2026, 9, 29, 12);
 const stamp = (day, hour = 10) => new Date(2026, 9, day, hour).toISOString();
@@ -21,6 +22,7 @@ function setup() {
     esc: escape, escAttr: escape, activeView: 'board', sectionSearchTerm: '',
     renderSidebar() {}, renderMain() {}, closeSidebar() {},
   });
+  vm.runInContext(paging, context);
   vm.runInContext(source, context);
   return { context, elements };
 }
@@ -97,10 +99,13 @@ test('deleting, reopening, or resetting a task removes its completion from the s
 
 test('renders accessible charts, escapes board names, filters, and handles empty data', () => {
   const { context, elements } = setup();
+  const name = '<img src=x onerror=alert(1)>';
+  context.readBoardOptions = () => ({ page: { hasMore: false }, rows: [[1, name]] });
+  context.readListPage = () => ({ hasMore: false, rows: [[1, name, 2, 1]] });
   context.db = {
-    exec: sql => sql.includes('SELECT id, name')
-      ? [{ values: [[1, '<img src=x onerror=alert(1)>']] }]
-      : [{ values: [[1, 2, stamp(29), null], [1, 0, null, '2026-10-28']] }],
+    create_function() {},
+    exec: sql => sql.startsWith('SELECT COUNT(*)')
+      ? [{ values: [[2, 1, 0, 1, 1, 0]] }] : [],
   };
   context.renderDashboard();
   assert.match(elements.mainBody.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
@@ -112,7 +117,9 @@ test('renders accessible charts, escapes board names, filters, and handles empty
   elements.dashboardBoard.value = '1';
   context.updateDashboardFilters();
   assert.equal((elements.mainBody.innerHTML.match(/<th scope="row">/g) || []).length, 30);
-  context.db.exec = () => [];
+  context.readBoardOptions = () => ({ page: { hasMore: false }, rows: [] });
+  context.readListPage = () => ({ hasMore: false, rows: [] });
+  context.db.exec = sql => sql.startsWith('SELECT COUNT(*)') ? [{ values: [[0, 0, 0, 0, 0, 0]] }] : [];
   context.renderDashboard();
   assert.match(elements.mainBody.innerHTML, /No tasks to measure yet/);
   assert.doesNotMatch(elements.mainBody.innerHTML, /NaN|Infinity/);

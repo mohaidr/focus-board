@@ -34,6 +34,7 @@ function loadFromIDB() {
 }
 
 function persist() {
+  invalidateListPages();
   const data = db.export();
   return saveToIDB(data.buffer);
 }
@@ -225,6 +226,10 @@ function createTables() {
     )
   `);
   db.run('CREATE INDEX IF NOT EXISTS appointments_day ON appointments(date, start_time)');
+  db.run('CREATE INDEX IF NOT EXISTS items_board_order ON items(section_id, status, sort_order, id)');
+  db.run('CREATE INDEX IF NOT EXISTS sections_type_order ON sections(type, prioritized DESC, sort_order, created_at DESC, id DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS contacts_name ON contacts(name COLLATE NOCASE, id)');
+  db.run('CREATE INDEX IF NOT EXISTS appointments_board_day ON appointments(section_id, date, start_time, end_time, id)');
   for (const [table, fields] of [
     ['contacts', ['notes']],
     ['appointments', ['description', 'person_notes']],

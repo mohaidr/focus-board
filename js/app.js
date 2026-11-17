@@ -23,9 +23,7 @@ let sketchActive    = false;  // whether sketch canvas is currently shown in ite
 let selectedColor      = COLORS[5];
 let selectedBoardType  = 'task';
 let sectionSearchTerm  = '';
-let taskBoardsVisible  = 5;
-let refBoardsVisible   = 5;
-const SIDEBAR_PAGE_SIZE = 5;
+let sidebarSearchTerm = '';
 const BACKUP_RETENTION = 3;
 const BACKUP_META_DB = 'DashoraBackupMetaDB';
 const BACKUP_META_STORE = 'meta';
@@ -1208,7 +1206,6 @@ async function setBackupProtected(backupId, shouldProtect) {
 
 function renderSidebar() {
   const nav = document.getElementById('sidebarNav');
-  const sections = db.exec('SELECT id, name, color, type FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
   const backupsCount = backupFilesCache.length;
 
   let html = `
@@ -1228,84 +1225,49 @@ function renderSidebar() {
     </div>
     <div class="nav-divider"></div>`;
 
-  if (!sections.length || !sections[0].values.length) {
+  const boardCount = db.exec('SELECT COUNT(*) FROM sections')[0].values[0][0];
+  if (!boardCount) {
     html += '<div class="nav-label">No boards yet</div>';
     nav.innerHTML = html;
     return;
   }
 
-  const allRows  = sections[0].values;
-  const taskRows = allRows.filter(r => (r[3] || 'task') === 'task');
-  const refRows  = allRows.filter(r => r[3] === 'reference');
-
-  // ── Task Boards ──
-  html += '<div class="nav-label">📋 Task Boards</div>';
-  if (taskRows.length === 0) {
-    html += '<div class="nav-empty-hint">No task boards</div>';
-  }
-  const visibleTasks = taskRows.slice(0, taskBoardsVisible);
-  for (const [id, name, color] of visibleTasks) {
-    const isActive = activeView === 'board' && id === activeSectionId ? 'active' : '';
-    const todo   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 0', [id])[0].values[0][0];
-    const inProg = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 1', [id])[0].values[0][0];
-    const done   = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ? AND status = 2', [id])[0].values[0][0];
-    let countParts = [];
-    if (todo) countParts.push(`${todo}`);
-    if (inProg) countParts.push(`${inProg} ⏳`);
-    if (done) countParts.push(`${done} ✓`);
-    const countText = countParts.join(' / ') || '0';
-    html += renderNavItem(id, name, color, isActive, countText);
-  }
-  if (taskRows.length > taskBoardsVisible) {
-    const remaining = taskRows.length - taskBoardsVisible;
-    const next = Math.min(remaining, SIDEBAR_PAGE_SIZE);
-    html += `<div class="nav-toggle" onclick="showMoreBoards('task')">▼ Show ${next} more (${remaining} left)</div>`;
-  } else if (taskBoardsVisible > SIDEBAR_PAGE_SIZE && taskRows.length > SIDEBAR_PAGE_SIZE) {
-    html += `<div class="nav-toggle" onclick="showLessBoards('task')">▲ Show less</div>`;
-  }
-
-  // ── Divider ──
-  html += '<div class="nav-divider"></div>';
-
-  // ── Reference Boards ──
-  html += '<div class="nav-label">📖 Reference Boards</div>';
-  if (refRows.length === 0) {
-    html += '<div class="nav-empty-hint">No reference boards</div>';
-  }
-  const visibleRefs = refRows.slice(0, refBoardsVisible);
-  for (const [id, name, color] of visibleRefs) {
-    const isActive = activeView === 'board' && id === activeSectionId ? 'active' : '';
-    const total = db.exec('SELECT COUNT(*) FROM items WHERE section_id = ?', [id])[0].values[0][0];
-    html += renderNavItem(id, name, color, isActive, `${total}`);
-  }
-  if (refRows.length > refBoardsVisible) {
-    const remaining = refRows.length - refBoardsVisible;
-    const next = Math.min(remaining, SIDEBAR_PAGE_SIZE);
-    html += `<div class="nav-toggle" onclick="showMoreBoards('ref')">▼ Show ${next} more (${remaining} left)</div>`;
-  } else if (refBoardsVisible > SIDEBAR_PAGE_SIZE && refRows.length > SIDEBAR_PAGE_SIZE) {
-    html += `<div class="nav-toggle" onclick="showLessBoards('ref')">▲ Show less</div>`;
-  }
-
-  const appointmentRows = allRows.filter(row => row[3] === 'appointment');
-  html += '<div class="nav-divider"></div><div class="nav-label">Appointments</div>';
-  if (!appointmentRows.length) html += '<div class="nav-empty-hint">No appointment boards</div>';
-  for (const [id, name, color] of appointmentRows) {
-    const total = db.exec('SELECT COUNT(*) FROM appointments WHERE section_id = ?', [id])[0].values[0][0];
-    html += renderNavItem(id, name, color, activeView === 'board' && id === activeSectionId ? 'active' : '', `${total}`);
+  html += `<input class="section-search sidebar-board-search" type="search" id="sidebarBoardSearch"
+    aria-label="Search boards" placeholder="Search boards" value="${escAttr(sidebarSearchTerm)}"
+    oninput="filterSidebarBoards(this.value)">`;
+  for (const [type, label] of [['task', '📋 Task Boards'], ['reference', '📖 Reference Boards'], ['appointment', 'Appointments']]) {
+    const boardSql = `SELECT s.id, s.name, s.color,
+      (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 0),
+      (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 1),
+      (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 2),
+      (SELECT COUNT(*) FROM items WHERE section_id = s.id),
+      (SELECT COUNT(*) FROM appointments WHERE section_id = s.id)
+      FROM sections s`;
+    const page = readListPage('sidebar-' + type, boardSql + ` WHERE COALESCE(s.type, 'task') = ? AND text_matches(s.name, ?)
+      ORDER BY s.prioritized DESC, CASE WHEN s.prioritized = 1 THEN s.sort_order END ASC, s.created_at DESC, s.id DESC`,
+    [type, sidebarSearchTerm]);
+    html += `<div class="nav-divider"></div><div class="nav-label">${label}</div>`;
+    const rows = [...page.rows];
+    if (!sidebarSearchTerm && activeView === 'board' && !rows.some(row => row[0] === activeSectionId)) {
+      const selected = db.exec(boardSql + ` WHERE s.id = ? AND COALESCE(s.type, 'task') = ?`, [activeSectionId, type]);
+      if (selected.length) rows.unshift(selected[0].values[0]);
+    }
+    if (!rows.length) html += '<div class="nav-empty-hint">No matching boards</div>';
+    for (const [id, name, color, todo, progress, done, total, appointments] of rows) {
+      const counts = [todo ? `${todo}` : '', progress ? `${progress} ⏳` : '', done ? `${done} ✓` : ''].filter(Boolean);
+      html += renderNavItem(id, name, color, activeView === 'board' && id === activeSectionId ? 'active' : '',
+        type === 'task' ? counts.join(' / ') || '0' : String(type === 'appointment' ? appointments : total));
+    }
+    html += renderLoadMore(page, 'renderSidebar()');
   }
   nav.innerHTML = html;
 }
 
-function showMoreBoards(group) {
-  if (group === 'task') taskBoardsVisible += SIDEBAR_PAGE_SIZE;
-  else if (group === 'ref') refBoardsVisible += SIDEBAR_PAGE_SIZE;
+function filterSidebarBoards(value) {
+  sidebarSearchTerm = value;
   renderSidebar();
-}
-
-function showLessBoards(group) {
-  if (group === 'task') taskBoardsVisible = SIDEBAR_PAGE_SIZE;
-  else if (group === 'ref') refBoardsVisible = SIDEBAR_PAGE_SIZE;
-  renderSidebar();
+  const input = document.getElementById('sidebarBoardSearch');
+  input.focus();
 }
 
 function renderNavItem(id, name, color, isActive, countText) {
@@ -1405,34 +1367,22 @@ function renderMain() {
   const searchVal = escAttr(sectionSearchTerm);
 
   // Load items from DB (with search filter if active)
-  const itemsRes = db.exec(
-    `SELECT id, title, description, link, completed, recurring, status, due_date,
+  const itemSql = `SELECT id, title, description, link, completed, recurring, status, due_date,
             description_format, description_direction, protected, password_hash, password_salt, encrypted, sketch_data, notes
-     FROM items WHERE section_id = ? ORDER BY sort_order, id`,
-    [sid]
-  );
-  let rows = itemsRes.length ? itemsRes[0].values : [];
-  rows = rows.map(row => {
-    const hydrated = [...row];
-    hydrated[15] = parseItemNotes(row[15]);
-    if (row[13] !== 1) return hydrated;
-    const payload = decryptedProtectedItems.get(row[0]);
-    if (!payload) return hydrated;
-    hydrated[1] = payload.title || '';
-    hydrated[2] = payload.description || '';
-    hydrated[3] = payload.link || '';
-    hydrated[14] = payload.sketchData || null;
-    hydrated[15] = validateItemNotes(payload.notes);
-    return hydrated;
-  });
-  if (searchTerm) {
-    rows = rows.filter(row => {
-      if (boardType === 'reference' && isItemLocked(row[0], row[10])) return false;
-      return (row[1] || '').toLowerCase().includes(searchTerm)
-        || (row[2] || '').toLowerCase().includes(searchTerm)
-        || itemNotesMatch(row[15], searchTerm);
-    });
-  }
+     FROM items WHERE section_id = ? AND (? = '' OR
+       item_matches(id, title, description, notes, protected, encrypted, ?, ?))`;
+  const itemParams = [sid, searchTerm, boardType, searchTerm];
+  const pages = boardType === 'reference'
+    ? [readListPage('reference-items', itemSql + ' ORDER BY sort_order, id', itemParams, listSearchRevision())]
+    : [0, 1, 2].map(status => readListPage('board-items-' + status,
+      itemSql + ' AND COALESCE(status, 0) = ? ORDER BY sort_order, id', [...itemParams, status], listSearchRevision()));
+  const rawRows = withSavedListRow('item', pages.flatMap(page => page.rows), itemSql, itemParams);
+  const rows = rawRows.map(row => hydrateListItem(row, 13, 14, 15));
+  const columnCounts = [0, 0, 0];
+  const countRows = db.exec(`SELECT COALESCE(status, 0), COUNT(*) FROM items WHERE section_id = ?
+    AND (? = '' OR item_matches(id, title, description, notes, protected, encrypted, ?, ?))
+    GROUP BY COALESCE(status, 0)`, itemParams);
+  for (const [status, count] of countRows[0]?.values || []) columnCounts[status] = count;
 
   if (rows.length === 0 && !searchTerm) {
     body.innerHTML = `
@@ -1460,7 +1410,7 @@ function renderMain() {
         iid, title, desc, link, expandedItems.has(iid), sid, sketchData, isProtected, isEncrypted, descriptionFormat, descriptionDirection, notes
       );
     }
-    html += '</div>';
+    html += renderLoadMore(pages[0], 'renderMain()') + '</div>';
     if (!searchTerm) {
       html += `<div class="add-item-row" onclick="openItemModal(${sid})">+ Add Item</div>`;
     }
@@ -1482,7 +1432,7 @@ function renderMain() {
         <span class="kanban-col-arrow ${todoArrow}">&#9660;</span>
         <span class="kanban-col-icon">📋</span>
         <span class="kanban-col-title">To Do</span>
-        <span class="kanban-col-count">${todoRows.length}</span>
+        <span class="kanban-col-count">${columnCounts[0]}</span>
       </div>`;
     if (!todoCollapsed) {
       html += '<div class="kanban-column-body" id="itemList">';
@@ -1493,7 +1443,7 @@ function renderMain() {
       if (!todoRows.length) {
         html += '<div class="kanban-empty">Nothing waiting here</div>';
       }
-      html += '</div>';
+      html += renderLoadMore(pages[0], 'renderMain()') + '</div>';
       if (!searchTerm) {
         html += `<div class="kanban-add-item" onclick="openItemModal(${sid})">Add Item</div>`;
       }
@@ -1510,7 +1460,7 @@ function renderMain() {
         <span class="kanban-col-arrow ${ipArrow}">&#9660;</span>
         <span class="kanban-col-icon">⏳</span>
         <span class="kanban-col-title">In Progress</span>
-        <span class="kanban-col-count">${ipRows.length}</span>
+        <span class="kanban-col-count">${columnCounts[1]}</span>
       </div>`;
     if (!inProgressCollapsed) {
       html += '<div class="kanban-column-body">';
@@ -1521,7 +1471,7 @@ function renderMain() {
       if (!ipRows.length) {
         html += '<div class="kanban-empty">Ready when you are</div>';
       }
-      html += '</div>';
+      html += renderLoadMore(pages[1], 'renderMain()') + '</div>';
     }
     html += '</div>';
 
@@ -1535,7 +1485,7 @@ function renderMain() {
         <span class="kanban-col-arrow ${doneArrow}">&#9660;</span>
         <span class="kanban-col-icon">✅</span>
         <span class="kanban-col-title">Done</span>
-        <span class="kanban-col-count">${doneRows.length}</span>
+        <span class="kanban-col-count">${columnCounts[2]}</span>
       </div>`;
     if (!doneCollapsed) {
       html += '<div class="kanban-column-body">';
@@ -1546,7 +1496,7 @@ function renderMain() {
       if (!doneRows.length) {
         html += '<div class="kanban-empty">Completed tasks land here</div>';
       }
-      html += '</div>';
+      html += renderLoadMore(pages[2], 'renderMain()') + '</div>';
     }
     html += '</div>';
 
@@ -2030,15 +1980,7 @@ function onItemDrop(e, targetId) {
     }
   }
 
-  const itemsRes = db.exec('SELECT id FROM items WHERE section_id = ? ORDER BY sort_order, id', [activeSectionId]);
-  if (!itemsRes.length) return;
-
-  let ids = itemsRes[0].values.map(r => r[0]);
-  ids = ids.filter(id => id !== dragItemId);
-  const targetIdx = ids.indexOf(targetId);
-  ids.splice(targetIdx, 0, dragItemId);
-
-  ids.forEach((id, i) => db.run('UPDATE items SET sort_order = ? WHERE id = ?', [i, id]));
+  if (!moveOrderedListRecord('items', dragItemId, targetId, activeSectionId)) return;
 
   persist();
   dragItemId = null;
@@ -2106,21 +2048,36 @@ function onSectionDrop(e, targetSid) {
   e.preventDefault();
   if (!dragSectionId || dragSectionId === targetSid) return;
 
-  const secRes = db.exec('SELECT id FROM sections ORDER BY prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC');
-  if (!secRes.length) return;
-
-  let ids = secRes[0].values.map(r => r[0]);
-  ids = ids.filter(id => id !== dragSectionId);
-  const targetIdx = ids.indexOf(targetSid);
-  ids.splice(targetIdx, 0, dragSectionId);
-
-  // Mark all reordered boards as prioritized and assign sort_order
-  ids.forEach((id, i) => db.run('UPDATE sections SET sort_order = ?, prioritized = 1 WHERE id = ?', [i, id]));
+  if (!moveOrderedListRecord('sections', dragSectionId, targetSid)) return;
 
   dragSectionId = null;
   persist();
   renderSidebar();
   toast('Board moved');
+}
+
+function moveOrderedListRecord(table, movingId, targetId, sectionId = null) {
+  const isBoard = table === 'sections';
+  const scope = isBoard ? '1 = 1' : 'section_id = ?';
+  const scopeParams = isBoard ? [] : [sectionId];
+  const found = db.exec(`SELECT COUNT(*) FROM ${table} WHERE ${scope} AND id IN (?, ?)`,
+    [...scopeParams, movingId, targetId])[0].values[0][0];
+  if (found !== 2) { toast('The moved record or its destination no longer exists.'); return false; }
+  const order = isBoard
+    ? 'prioritized DESC, CASE WHEN prioritized = 1 THEN sort_order END ASC, created_at DESC, id DESC'
+    : 'sort_order, id';
+  db.run(`WITH remaining AS MATERIALIZED (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY ${order}) AS position FROM ${table}
+      WHERE ${scope} AND id != ?
+    ), destination AS MATERIALIZED (SELECT position FROM remaining WHERE id = ?),
+    positions AS MATERIALIZED (
+      SELECT id, position - 1 + (position >= (SELECT position FROM destination)) AS new_order FROM remaining
+      UNION ALL SELECT ?, (SELECT position FROM destination) - 1
+    )
+    UPDATE ${table} SET sort_order = (SELECT new_order FROM positions WHERE positions.id = ${table}.id)
+      ${isBoard ? ', prioritized = 1' : ''} WHERE id IN (SELECT id FROM positions)`,
+  [...scopeParams, movingId, targetId, movingId]);
+  return true;
 }
 
 
@@ -2155,45 +2112,27 @@ function onSearch() {
 function renderSearchResults(term) {
   const body   = document.getElementById('mainBody');
   const header = document.getElementById('mainHeader');
-  const appointmentMatches = searchAppointments(term);
-
-  const res = db.exec(`
+  const { page, total } = globalSearchPage(term);
+  const rows = page.rows.filter(row => row[0] === 0).map(([, id]) => {
+    const res = db.exec(`
     SELECT i.id, i.title, i.description, i.link, i.completed,
            i.recurring, i.section_id, s.name, s.color, i.status, i.due_date,
         s.type, i.protected, i.encrypted, i.sketch_data, i.description_format, i.description_direction, i.notes
     FROM items i
     JOIN sections s ON i.section_id = s.id
-    ORDER BY s.sort_order, i.sort_order
-  `);
-
-  const allRows = (res.length ? res[0].values : []).map(row => {
-    const hydrated = [...row];
-    hydrated[17] = parseItemNotes(row[17]);
-    if (row[13] !== 1) return hydrated;
-    const payload = decryptedProtectedItems.get(row[0]);
-    if (!payload) return hydrated;
-    hydrated[1] = payload.title || '';
-    hydrated[2] = payload.description || '';
-    hydrated[3] = payload.link || '';
-    hydrated[14] = payload.sketchData || null;
-    hydrated[17] = validateItemNotes(payload.notes);
-    return hydrated;
+    WHERE i.id = ?`, [id]);
+    return hydrateListItem(res[0].values[0], 13, 14, 17);
   });
-  const rows = allRows.filter(row => {
-    if (row[11] === 'reference' && isItemLocked(row[0], row[12])) return false;
-    return (row[1] || '').toLowerCase().includes(term)
-      || (row[2] || '').toLowerCase().includes(term)
-      || itemNotesMatch(row[17], term);
-  });
+  const appointmentMatches = page.rows.filter(row => row[0] === 1).map(([, id]) => getAppointment(id));
 
   header.innerHTML = `
     <div class="main-header-left">
       <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">&#9776;</button>
       <h2>Search Results</h2>
-      <span class="item-total">${rows.length + appointmentMatches.length} match${rows.length + appointmentMatches.length !== 1 ? 'es' : ''}</span>
+      <span class="item-total">${total} match${total !== 1 ? 'es' : ''}</span>
     </div>`;
 
-  if (rows.length === 0 && appointmentMatches.length === 0) {
+  if (!total) {
     body.innerHTML = '<div class="empty-state"><h3>No matches</h3><p>Try different keywords</p></div>';
     return;
   }
@@ -2221,7 +2160,12 @@ function renderSearchResults(term) {
     }
   }
 
-  body.innerHTML = html + renderAppointmentSearchMatches(appointmentMatches);
+  const boards = page.rows.filter(row => row[0] === 2).map(([, id]) => {
+    const [name] = db.exec('SELECT name FROM sections WHERE id = ?', [id])[0].values[0];
+    return `<button type="button" class="appointment-agenda-entry" onclick="selectSection(${id})">Board: ${esc(name)}</button>`;
+  }).join('');
+  body.innerHTML = html + renderAppointmentSearchMatches(appointmentMatches) + boards +
+    renderLoadMore(page, "renderSearchResults(document.getElementById('searchBox').value.toLowerCase())");
 }
 
 
@@ -3105,6 +3049,7 @@ async function saveItemOnce() {
        encryption.encryptionVersion, storedNotes]);
   }
 
+  const savedItemId = editId ? parseInt(editId, 10) : db.exec('SELECT last_insert_rowid()')[0].values[0][0];
   if (editId) {
     const itemId = parseInt(editId, 10);
     decryptedProtectedItems.delete(itemId);
@@ -3112,6 +3057,7 @@ async function saveItemOnce() {
   }
 
   await persist();
+  rememberListRecord('item', savedItemId);
   closeItemModal(true);
   renderSidebar();
   renderMain();
@@ -3973,6 +3919,7 @@ async function silentSaveItem() {
       throw error;
     }
     if (revision === itemEditorChangeRevision) itemEditorChanged = false;
+    rememberListRecord('item', parseInt(editId, 10));
     requestChangeBackup(createdItem ? 'new-item' : 'item-updated');
     renderSidebar();
     return true;

@@ -39,30 +39,39 @@ function appointmentDateLabel(date) {
     { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function getContacts() {
-  return appointmentRows('SELECT * FROM contacts ORDER BY name COLLATE NOCASE, id');
-}
-
 function getContact(id) {
   return appointmentRows('SELECT * FROM contacts WHERE id = ?', [id])[0] || null;
 }
 
-function getAppointments(date = null, sectionId = null) {
+function getAppointments(date = null, sectionId = null, candidate = null) {
   return appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
     c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
     c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
     FROM appointments a JOIN sections s ON s.id = a.section_id
     LEFT JOIN contacts c ON c.id = a.contact_id
     WHERE 1 = 1 ${date === null ? '' : 'AND a.date = ?'} ${sectionId === null ? '' : 'AND a.section_id = ?'}
-    ORDER BY a.date, a.start_time, a.end_time, a.id`,
-  [...(date === null ? [] : [date]), ...(sectionId === null ? [] : [sectionId])]).map(hydrateAppointmentContact);
+    ${candidate ? 'AND a.start_time < ? AND a.end_time > ? AND (? IS NULL OR a.id != ?)' : ''}
+    ORDER BY a.date, a.start_time, a.end_time, a.id LIMIT 21`,
+  [...(date === null ? [] : [date]), ...(sectionId === null ? [] : [sectionId]),
+    ...(candidate ? [candidate.end_time, candidate.start_time, candidate.id, candidate.id] : [])]).map(hydrateAppointmentContact);
 }
 
 function searchAppointments(term) {
-  return getAppointments().filter(appointment =>
-    [appointment.title, appointment.description, appointment.person_name, appointment.person_phone,
-      appointment.person_email, appointment.person_notes, appointment.location, appointment.board_name, appointment.date]
-      .some(value => value.toLowerCase().includes(term)));
+  const page = readListPage('appointment-search', `SELECT a.id ${appointmentSearchFrom()}
+    WHERE ${appointmentSearchWhere()} ORDER BY a.date, a.start_time, a.end_time, a.id`, [term]);
+  return page.rows.map(([id]) => getAppointment(id));
+}
+
+function appointmentSearchFrom() {
+  return `FROM appointments a JOIN sections s ON s.id = a.section_id
+    LEFT JOIN contacts c ON c.id = a.contact_id`;
+}
+
+function appointmentSearchWhere() {
+  return `text_matches(a.title || char(10) || a.description || char(10) ||
+    COALESCE(c.name, a.person_name) || char(10) || COALESCE(c.phone, a.person_phone) || char(10) ||
+    COALESCE(c.email, a.person_email) || char(10) || COALESCE(c.notes, a.person_notes) || char(10) ||
+    a.location || char(10) || s.name || char(10) || a.date, ?)`;
 }
 
 function renderAppointmentSearchMatches(appointments) {
@@ -183,7 +192,14 @@ function renderAppointmentCalendar() {
 function renderAppointmentBoard(id, name, color) {
   if (!appointmentDay) appointmentDay = dayKey();
   if (!appointmentMonth) appointmentMonth = appointmentDay.slice(0, 7);
-  const appointments = getAppointments(appointmentDay, id);
+  const sql = `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
+    COALESCE(c.name, a.person_name) FROM appointments a LEFT JOIN contacts c ON c.id = a.contact_id
+    WHERE a.date = ? AND a.section_id = ?`;
+  const params = [appointmentDay, id];
+  const page = readListPage('appointment-day', sql + ' ORDER BY a.start_time, a.end_time, a.id', params);
+  const visibleRows = withSavedListRow('appointment', page.rows, sql, params, 'a.id');
+  const appointments = readListObjects({ rows: visibleRows }, ['id', 'title', 'date', 'start_time', 'end_time', 'person_name']);
+  const total = db.exec('SELECT COUNT(*) FROM appointments WHERE date = ? AND section_id = ?', [appointmentDay, id])[0].values[0][0];
   document.getElementById('mainHeader').innerHTML = `
     <div class="main-header-left">
       <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" onclick="toggleSidebar()">&#9776;</button>
@@ -217,13 +233,14 @@ function renderAppointmentBoard(id, name, color) {
         <button class="btn btn-primary btn-sm" onclick="openAppointmentModal()">+ Appointment</button>
       </div>
       <h3>${esc(appointmentDateLabel(appointmentDay))}</h3>
-      <p class="appointment-hint">${appointments.length} appointment${appointments.length === 1 ? '' : 's'} &middot; Times are local to this device. Click an hour to book.</p>
+      <p class="appointment-hint">Showing ${appointments.length} of ${total} appointment${total === 1 ? '' : 's'} &middot; Times are local to this device. Click an hour to book.</p>
       <div class="appointment-agenda" aria-label="Appointments for selected day">
         ${appointments.length ? appointments.map(appointment => `<button type="button" class="appointment-agenda-entry"
           onclick="openAppointmentDetails(${appointment.id})"><span>${appointment.start_time} - ${appointment.end_time}</span>
           <strong dir="auto">${esc(appointment.title)}</strong><span dir="auto">${esc(appointment.person_name)}</span></button>`).join('')
     : '<p class="appointment-hint">No appointments today. Choose a time below to add one.</p>'}
       </div>
+      ${renderLoadMore(page, 'renderMain()')}
       <div class="appointment-timeline-scroll" id="appointmentTimeline"><div class="appointment-timeline">${hours}${cards}</div></div>
     </section></div>`;
   document.getElementById('appointmentTimeline').scrollTop =
@@ -231,6 +248,7 @@ function renderAppointmentBoard(id, name, color) {
 }
 
 function selectContactsTab() {
+  resetListPage('contacts');
   activeView = 'contacts';
   document.getElementById('searchBox').value = '';
   renderSidebar();
@@ -239,9 +257,11 @@ function selectContactsTab() {
 }
 
 function renderContacts() {
-  const contacts = getContacts().filter(contact =>
-    [contact.name, contact.phone, contact.email, contact.notes].some(value =>
-      value.toLowerCase().includes(contactSearchTerm)));
+  const sql = `SELECT id, name, phone, email FROM contacts
+    WHERE text_matches(name || char(10) || phone || char(10) || email || char(10) || notes, ?)`;
+  const page = readListPage('contacts', sql + ' ORDER BY name COLLATE NOCASE, id', [contactSearchTerm]);
+  const rows = withSavedListRow('contact', page.rows, sql, [contactSearchTerm]);
+  const contacts = readListObjects({ rows }, ['id', 'name', 'phone', 'email']);
   document.getElementById('mainHeader').innerHTML = `<div class="main-header-left">
     <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" onclick="toggleSidebar()">&#9776;</button>
     <h2>Contacts</h2></div><button class="btn btn-primary" onclick="openContactModal()">+ Create contact</button>`;
@@ -254,7 +274,8 @@ function renderContacts() {
     <div class="contact-grid">${contacts.map(contact => `<button class="contact-card" type="button" onclick="openContactModal(${contact.id})">
       <strong dir="auto">${esc(contact.name)}</strong><span dir="auto">${esc(contact.phone)}</span>
       <span dir="auto">${esc(contact.email)}</span><span class="appointment-hint">View / edit contact</span></button>`).join('')
-    || '<p class="appointment-hint">No contacts found. Create one here or save a new person while booking an appointment.</p>'}</div>`;
+    || '<p class="appointment-hint">No contacts found. Create one here or save a new person while booking an appointment.</p>'}</div>
+    ${renderLoadMore(page, 'renderContacts()')}`;
 }
 
 function filterContacts(value) {
@@ -291,6 +312,7 @@ function ensureAppointmentModals() {
             aria-describedby="appointmentContactHint" placeholder="Search contacts by name, phone, or email"
             oninput="fillAppointmentContactOptions(document.getElementById('appointmentContact').value)">
           <select class="form-select" id="appointmentContact" onchange="onAppointmentContactChange()"></select>
+          <div id="appointmentContactMore"></div>
           <p class="appointment-hint" id="appointmentContactHint" role="status"></p>
         </div>
         <fieldset id="appointmentNewPerson"><legend>New person</legend>${personFields('appointmentPerson')}
@@ -338,11 +360,10 @@ function readPersonFields(prefix) {
 
 function fillAppointmentContactOptions(selected = '') {
   const term = document.getElementById('appointmentContactSearch').value.trim();
-  const matches = appointmentRows(`SELECT id, name, phone, email FROM contacts
-    WHERE instr(lower(name), lower(?)) > 0 OR instr(lower(phone), lower(?)) > 0
-      OR instr(lower(email), lower(?)) > 0
-    ORDER BY name COLLATE NOCASE, id LIMIT 21`, [term, term, term]);
-  const contacts = matches.slice(0, 20);
+  const page = readListPage('contact-picker', `SELECT id, name, phone, email FROM contacts
+    WHERE text_matches(name || char(10) || phone || char(10) || email, ?)
+    ORDER BY name COLLATE NOCASE, id`, [term]);
+  const contacts = readListObjects(page, ['id', 'name', 'phone', 'email']);
   if (selected && !contacts.some(contact => String(contact.id) === selected)) {
     const contact = getContact(Number(selected));
     if (contact) contacts.unshift(contact);
@@ -351,9 +372,11 @@ function fillAppointmentContactOptions(selected = '') {
     contacts.map(contact => `<option value="${contact.id}">${esc(contact.name)}${contact.phone || contact.email
       ? ' - ' + esc(contact.phone || contact.email) : ''}</option>`).join('');
   document.getElementById('appointmentContact').value = selected;
-  document.getElementById('appointmentContactHint').textContent = matches.length > 20
-    ? 'Showing the first 20 matches. Keep typing to narrow the results.'
-    : matches.length ? 'Search saved contacts by name, phone, or email.'
+  document.getElementById('appointmentContactMore').innerHTML = renderLoadMore(page,
+    "fillAppointmentContactOptions(document.getElementById('appointmentContact').value)");
+  document.getElementById('appointmentContactHint').textContent = page.hasMore
+    ? `Showing the first ${page.rows.length} matches. Search or load more contacts.`
+    : page.rows.length ? 'Search saved contacts by name, phone, or email.'
       : 'No saved contacts match. Choose "Enter a new person" to add one.';
   onAppointmentContactChange();
 }
@@ -392,6 +415,7 @@ function openAppointmentModal(id = null, start = '09:00') {
     phone: appointment.person_phone, email: appointment.person_email, notes: appointment.person_notes,
     notes_format: appointment.person_notes_format, notes_direction: appointment.person_notes_direction } : {});
   document.getElementById('appointmentSaveContact').checked = !appointment;
+  resetListPage('contact-picker');
   document.getElementById('appointmentContactSearch').value = '';
   fillAppointmentContactOptions(appointment && appointment.contact_id ? String(appointment.contact_id) : '');
   closeModal('appointmentDetailsModal');
@@ -461,11 +485,14 @@ async function saveAppointment(event) {
   if (contactId && !person) { toast('Contact no longer exists. Choose another contact or enter a new person.'); return; }
   if (!person) return;
   if (!person.name) { toast('Person name is required'); return; }
-  const conflicts = findAppointmentConflicts(getAppointments(date), { id, date, start_time: start, end_time: end });
+  const candidate = { id, date, start_time: start, end_time: end };
+  const conflicts = findAppointmentConflicts(getAppointments(date, null, candidate), candidate);
   if (conflicts.length && !confirm('This overlaps with:\n' + conflicts.map(other =>
-    `${other.start_time} - ${other.end_time}: ${other.title} (${other.board_name})`).join('\n') + '\n\nSave anyway?')) return;
+    `${other.start_time} - ${other.end_time}: ${other.title} (${other.board_name})`).join('\n') +
+    (conflicts.length === 21 ? '\nAdditional overlapping appointments may exist.' : '') + '\n\nSave anyway?')) return;
   appointmentSavePending = true;
   document.getElementById('appointmentSaveButton').disabled = true;
+  let savedId = id;
   try {
     const saved = await writeAppointmentChange(() => {
       if (!contactId && document.getElementById('appointmentSaveContact').checked) {
@@ -486,9 +513,11 @@ async function saveAppointment(event) {
           person_notes, title, date, start_time, end_time, description, location,
           description_format, description_direction, person_notes_format, person_notes_direction)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, params);
+        savedId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
       }
     }, id ? 'appointment-updated' : 'appointment-created');
     if (!saved) return;
+    rememberListRecord('appointment', savedId);
     appointmentDay = date;
     appointmentMonth = date.slice(0, 7);
     closeModal('appointmentModal');
@@ -553,7 +582,7 @@ async function deleteAppointment(id) {
 
 function openContactModal(id = null) {
   ensureAppointmentModals();
-  const contact = id === null ? null : getContacts().find(contact => contact.id === id);
+  const contact = id === null ? null : getContact(id);
   if (id !== null && !contact) { toast('Contact no longer exists'); return; }
   document.getElementById('contactForm').reset();
   document.getElementById('contactId').value = contact ? contact.id : '';
@@ -571,17 +600,20 @@ async function saveContact(event) {
   if (!person) return;
   if (!person.name) { toast('Person name is required'); return; }
   const id = Number(document.getElementById('contactId').value) || null;
-  if (id && !getContacts().some(contact => contact.id === id)) { toast('Contact no longer exists'); return; }
+  if (id && !getContact(id)) { toast('Contact no longer exists'); return; }
   contactSavePending = true;
   document.getElementById('contactSaveButton').disabled = true;
+  let savedId = id;
   try {
     if (!await writeAppointmentChange(() => {
       const params = [person.name, person.phone, person.email, person.notes, person.notes_format, person.notes_direction];
       if (id) db.run('UPDATE contacts SET name = ?, phone = ?, email = ?, notes = ?, notes_format = ?, notes_direction = ? WHERE id = ?', [...params, id]);
       else {
         db.run('INSERT INTO contacts (name, phone, email, notes, notes_format, notes_direction) VALUES (?, ?, ?, ?, ?, ?)', params);
+        savedId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
       }
     }, id ? 'contact-updated' : 'contact-created')) return;
+    rememberListRecord('contact', savedId);
     closeModal('contactModal');
     renderMain();
     toast(id ? 'Contact updated' : 'Contact created');

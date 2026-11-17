@@ -1,6 +1,7 @@
 /* Task dashboard: derived from current task records, without a separate history. */
 let dashboardDays = 7;
 let dashboardBoardId = '';
+let dashboardBoardSearch = '';
 
 function dashboardDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -78,15 +79,57 @@ function updateDashboardFilters() {
   renderDashboard();
 }
 
+function filterDashboardBoards(value) {
+  dashboardBoardSearch = value;
+  renderDashboard();
+  document.getElementById('dashboardBoardSearch').focus();
+}
+
+function readDashboardStats() {
+  const now = new Date();
+  const stats = buildDashboardStats([], [], dashboardDays, '', now);
+  db.create_function('dashboard_day', value => {
+    const date = dashboardTimestamp(value);
+    return date && date <= now ? dashboardDateKey(date) : null;
+  });
+  db.create_function('dashboard_invalid_date', value => dashboardTimestamp(value) ? 0 : 1);
+  db.create_function('dashboard_overdue', value => {
+    if (!value) return 0;
+    const due = dashboardTimestamp(/^\d{4}-\d{2}-\d{2}$/.test(value) ? value + 'T23:59:59.999' : value);
+    return due && due < now ? 1 : 0;
+  });
+  const where = `FROM items i JOIN sections s ON s.id = i.section_id
+    WHERE COALESCE(s.type, 'task') = 'task' AND (? = '' OR s.id = ?)`;
+  const params = [dashboardBoardId, dashboardBoardId];
+  const [total, todo, progress, done, overdue, undated] = db.exec(`SELECT COUNT(*),
+    COALESCE(SUM(CASE WHEN i.status NOT IN (1, 2) OR i.status IS NULL THEN 1 ELSE 0 END), 0),
+    COALESCE(SUM(i.status = 1), 0), COALESCE(SUM(i.status = 2), 0),
+    COALESCE(SUM(CASE WHEN COALESCE(i.status, 0) != 2 THEN dashboard_overdue(i.due_date) ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN i.status = 2 THEN dashboard_invalid_date(i.completed_at) ELSE 0 END), 0) ${where}`, params)[0].values[0];
+  const daily = db.exec(`SELECT dashboard_day(i.completed_at), COUNT(*) ${where}
+    AND i.status = 2 AND dashboard_day(i.completed_at) >= ? GROUP BY dashboard_day(i.completed_at)`,
+  [...params, stats.daily[0].key]);
+  for (const [key, count] of daily[0]?.values || []) {
+    const day = stats.daily.find(day => day.key === key);
+    if (day) day.count = count;
+  }
+  Object.assign(stats, { total, status: [todo, progress, done], overdue, undatedDone: undated,
+    active: todo + progress, rate: total ? Math.round(done / total * 100) : null,
+    completed: stats.daily.reduce((sum, day) => sum + day.count, 0) });
+  const page = readListPage('dashboard-progress', `SELECT s.id, s.name,
+    (SELECT COUNT(*) FROM items WHERE section_id = s.id),
+    (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 2)
+    FROM sections s WHERE COALESCE(s.type, 'task') = 'task' AND (? = '' OR s.id = ?)
+    ORDER BY s.name, s.id`, params);
+  stats.progress = readListObjects(page, ['id', 'name', 'total', 'done']);
+  return { stats, page };
+}
+
 function renderDashboard() {
-  const boardsResult = db.exec("SELECT id, name FROM sections WHERE COALESCE(type, 'task') = 'task' ORDER BY name, id");
-  const boards = boardsResult.length ? boardsResult[0].values.map(([id, name]) => ({ id, name })) : [];
-  if (!boards.some(board => String(board.id) === dashboardBoardId)) dashboardBoardId = '';
-  const result = db.exec(`SELECT i.section_id, i.status, i.completed_at, i.due_date
-    FROM items i JOIN sections s ON s.id = i.section_id WHERE COALESCE(s.type, 'task') = 'task'`);
-  const tasks = result.length ? result[0].values.map(([section_id, status, completed_at, due_date]) =>
-    ({ section_id, status, completed_at, due_date })) : [];
-  const stats = buildDashboardStats(tasks, boards, dashboardDays, dashboardBoardId);
+  const options = readBoardOptions('dashboard-options', 'task', dashboardBoardSearch, dashboardBoardId);
+  const boards = readListObjects({ rows: options.rows }, ['id', 'name']);
+  if (dashboardBoardId && !boards.some(board => String(board.id) === dashboardBoardId)) dashboardBoardId = '';
+  const { stats, page } = readDashboardStats();
   const maxDaily = Math.max(1, ...stats.daily.map(day => day.count));
   const dailySummary = stats.daily.map(day => `${day.key}: ${day.count}`).join(', ');
   const labels = ['To Do', 'In Progress', 'Done'];
@@ -100,12 +143,16 @@ function renderDashboard() {
       <div class="dashboard-intro">
         <div><h3>Your progress, at a glance</h3><p>Small steps count. See what is done and what needs attention.</p></div>
         <div class="dashboard-filters">
-          <label for="dashboardBoard">Task board
+          <div class="dashboard-board-filter">
+            <label for="dashboardBoard">Task board</label>
+            <input id="dashboardBoardSearch" class="section-search" type="search" aria-label="Search task boards"
+              placeholder="Search task boards" value="${escAttr(dashboardBoardSearch)}" oninput="filterDashboardBoards(this.value)">
             <select id="dashboardBoard" class="form-select" onchange="updateDashboardFilters()">
               <option value="">All task boards</option>
               ${boards.map(board => `<option value="${board.id}" ${String(board.id) === dashboardBoardId ? 'selected' : ''}>${esc(board.name)}</option>`).join('')}
             </select>
-          </label>
+            ${renderLoadMore(options.page, 'renderDashboard()')}
+          </div>
           <label for="dashboardDays">Completion activity
             <select id="dashboardDays" class="form-select" onchange="updateDashboardFilters()">
               <option value="7" ${dashboardDays === 7 ? 'selected' : ''}>Last 7 days</option>
@@ -155,6 +202,7 @@ function renderDashboard() {
             <span>${board.done} / ${board.total} done${board.total ? ` (${Math.round(board.done / board.total * 100)}%)` : ''}</span></div>
           <progress value="${board.done}" max="${board.total || 1}" aria-label="${escAttr(board.name)} completion"></progress>
         </li>`).join('')}</ul>` : '<p>No task boards yet.</p>'}
+        ${renderLoadMore(page, 'renderDashboard()')}
       </section>
       <p class="dashboard-note">Based on tasks currently stored, not a permanent activity history. Deleted tasks, reopened tasks, and earlier recurring completions are not retained.
         The date filter applies only to completion activity; other metrics show the current workload.

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const paging = fs.readFileSync(path.join(__dirname, '..', 'js', 'paging.js'), 'utf8');
 
 const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
@@ -149,6 +150,7 @@ function setup({ format = 'markdown', direction = 'rtl', edit = true, encrypted 
     persist: async () => calls.push('persist'),
     closeItemModal: saved => calls.push({ saved }),
     renderSidebar: () => {}, renderMain: () => {}, checkDueDateNotifications: () => {},
+    rememberListRecord() {},
     createBackup: async () => {},
     requestChangeBackup: reason => calls.push({ backup: reason }),
     toast: message => calls.push({ toast: message }),
@@ -284,8 +286,11 @@ test('search results forward saved direction for both board types', () => {
   const elements = { mainBody: {}, mainHeader: {} };
   const context = vm.createContext({
     document: { getElementById: id => elements[id] },
-    db: { exec: () => [{ values: ['task', 'reference'].map((type, index) =>
-      [index + 1, 'Title', 'word', '', 0, 0, 1, 'Board', '#123456', 0, null, type, 0, 0, null, 'markdown', 'rtl']) }] },
+    db: { exec: (sql, params) => [{ values: [
+      [params[0], 'Title', 'word', '', 0, 0, 1, 'Board', '#123456', 0, null,
+        params[0] === 1 ? 'task' : 'reference', 0, 0, null, 'markdown', 'rtl']] }] },
+    globalSearchPage: () => ({ page: { rows: [[0, 1], [0, 2]], hasMore: false }, total: 2 }),
+    renderLoadMore: () => '',
     decryptedProtectedItems: new Map(), expandedItems: new Set(),
     isItemLocked: () => false, esc, escAttr: esc,
     searchAppointments: () => [], renderAppointmentSearchMatches: () => '',
@@ -293,6 +298,8 @@ test('search results forward saved direction for both board types', () => {
     renderRefItem: (...args) => { calls.push(args); return 'reference'; },
   });
   vm.runInContext(markdown, context);
+  vm.runInContext(paging.slice(paging.indexOf('function hydrateListItem('),
+    paging.indexOf('function readListPage(')), context);
   vm.runInContext(app.slice(app.indexOf('function renderSearchResults('),
     app.indexOf('function toggleComplete(')), context);
   context.renderSearchResults('word');

@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
 const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
+const paging = fs.readFileSync(path.join(__dirname, '..', 'js', 'paging.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const contact = { id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes' };
 const appointment = { id: 3, section_id: 1, contact_id: 8, person_name: 'Sam',
@@ -43,17 +44,21 @@ function setup() {
     renderMain() {}, renderSidebar() {}, closeSidebar() {}, closeModal() {},
     dayKey: () => '2026-11-17',
     activeSectionId: 1,
+    unlockedProtectedItems: new Set(), decryptedProtectedItems: new Map(),
     persist: async () => { persisted++; if (failPersist) throw new Error('Storage full'); },
     requestChangeBackup: async reason => { backups.push(reason); return true; },
     db: {
+      create_function() {},
       exec(sql, params = []) {
+        if (sql === 'SELECT total_changes()') return [{ values: [[0]] }];
         if (sql.includes('last_insert_rowid')) return [{ columns: ['id'], values: [[77]] }];
         if (sql.startsWith('SELECT id FROM sections')) return [{ columns: ['id'], values: [[1]] }];
         if (sql.startsWith('SELECT * FROM contacts WHERE id')) return result(contacts.filter(row => row.id === params[0]));
         if (sql.startsWith('SELECT id, name, phone, email FROM contacts')) {
           return result(contacts.filter(row => [row.name, row.phone, row.email]
             .some(value => value.toLowerCase().includes(params[0].toLowerCase())))
-            .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id).slice(0, 21));
+            .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
+            .slice(params.at(-1), params.at(-1) + params.at(-2)));
         }
         if (sql.startsWith('SELECT * FROM contacts')) return result(contacts);
         if (sql.startsWith('SELECT * FROM appointments')) return result(appointments);
@@ -64,6 +69,7 @@ function setup() {
   });
   context.escAttr = context.esc;
   vm.runInContext(markdown, context);
+  vm.runInContext(paging, context);
   vm.runInContext(source, context);
   context.getAppointments = () => [];
   context.getAppointment = id => appointments.find(row => row.id === id);
@@ -138,7 +144,9 @@ test('contact picker loads bounded summaries and preserves an existing selection
   assert.equal(element('appointmentContact').value, '8');
   assert.equal(element('appointmentNewPerson').disabled, true);
   assert.match(element('appointmentContactHint').textContent, /first 20 matches/);
-  assert.match(queries[0].sql, /^SELECT id, name, phone, email FROM contacts[\s\S]*LIMIT 21$/);
+  const query = queries.find(query => query.sql.startsWith('SELECT id, name, phone, email'));
+  assert.match(query.sql, /LIMIT \? OFFSET \?$/);
+  assert.deepEqual(clone(query.params.slice(-2)), [21, 0]);
   assert.equal(queries.some(query => query.sql === 'SELECT * FROM contacts ORDER BY name COLLATE NOCASE, id'), false);
 
   element('appointmentContactSearch').value = 'no match';
@@ -311,15 +319,14 @@ test('board navigation renders appointment boards and still works with no boards
   const { context, element } = setup();
   context.activeView = 'board';
   context.backupFilesCache = [];
-  context.taskBoardsVisible = 5;
-  context.refBoardsVisible = 5;
-  context.SIDEBAR_PAGE_SIZE = 5;
-  context.db.exec = sql => sql.includes('COUNT') ? [{ values: [[2]] }]
-    : [{ values: [[1, 'Meetings <work>', '#123456', 'appointment']] }];
+  context.sidebarSearchTerm = '';
+  context.db.exec = sql => sql.includes('COUNT(*) FROM sections') ? [{ values: [[1]] }] : [];
+  context.readListPage = (key, sql, params) => ({ rows: params[0] === 'appointment'
+    ? [[1, 'Meetings <work>', '#123456', 0, 0, 0, 0, 2]] : [], hasMore: false });
   vm.runInContext(app.slice(app.indexOf('function renderSidebar('), app.indexOf('function renderMain(')), context);
   context.renderSidebar();
   assert.match(element('sidebarNav').innerHTML, /Meetings &lt;work&gt;/);
-  context.db.exec = () => [];
+  context.db.exec = () => [{ values: [[0]] }];
   context.renderSidebar();
   assert.match(element('sidebarNav').innerHTML, /No boards yet/);
   assert.match(element('sidebarNav').innerHTML, /Contacts/);
@@ -327,12 +334,14 @@ test('board navigation renders appointment boards and still works with no boards
 
 test('global search finds appointment details and renders escaped, navigable results', () => {
   const { context, element } = setup();
-  context.getAppointments = () => [{ ...appointment, title: '<script>Planning</script>', board_name: 'Work' }];
+  context.getAppointment = () => ({ ...appointment, title: '<script>Planning</script>', board_name: 'Work' });
+  context.readListPage = (key, sql, params) => ({ rows: params[0] === 'not found' ? [] : [[3]], hasMore: false });
   const matches = context.searchAppointments('next steps');
   assert.equal(matches.length, 1);
   assert.equal(context.searchAppointments('sam@example.test').length, 1);
   assert.equal(context.searchAppointments('not found').length, 0);
   context.db.exec = () => [];
+  context.globalSearchPage = () => ({ page: { rows: [[1, 3]], hasMore: false }, total: 1 });
   context.decryptedProtectedItems = new Map();
   context.expandedItems = new Set();
   vm.runInContext(app.slice(app.indexOf('function renderSearchResults('), app.indexOf('function toggleComplete(')), context);

@@ -276,10 +276,9 @@ function refreshSharedItemBoards() {
   select.disabled = !db || sharedItemSaving;
   if (!sharedItemContent || !db) return;
   const selected = select.value;
-  const result = db.exec(`
-    SELECT id, name FROM sections WHERE type = ?
-    ORDER BY prioritized DESC, sort_order, created_at DESC, id DESC`, [sharedItemContent.boardType]);
-  const rows = result.length ? result[0].values : [];
+  const { page, rows } = readBoardOptions('share-options', sharedItemContent.boardType,
+    document.getElementById('sharedItemBoardSearch').value, selected);
+  document.getElementById('sharedItemBoardMore').innerHTML = renderLoadMore(page, 'refreshSharedItemBoards()');
   select.innerHTML = rows.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('')
     + `<option value="new">Create a new ${sharedItemContent.boardType} board</option>`;
   select.value = Array.from(select.options).some(option => option.value === selected)

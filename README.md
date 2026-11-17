@@ -94,6 +94,27 @@ medical product.
 
 </details>
 
+### Loading large collections
+
+Interactive lists use database-level batches of 20, with **Load 20 more**
+fetching the next batch rather than fetching everything and hiding excess rows.
+One extra summary row detects whether another batch exists.
+
+- Task columns, reference items, daily appointment schedules, contacts, and each
+  sidebar board type load independently. Sidebar boards have their own search.
+- Board filters, contact searches, and global search filter before pagination.
+  Global search also finds board names. Changing a query starts a fresh batch;
+  protected reference items stay excluded until unlocked.
+- Contact and board dropdowns have search and bounded load-more controls.
+  Opening the native dropdown does not run another database query.
+- Selected boards/contacts and just-saved records can remain visible outside the
+  current batch, using a single-record lookup.
+- Dashboard totals and charts use database aggregates over all matching tasks,
+  not just the loaded page; its board lists and selector are batched.
+- Exports, backups, shared-item payloads, and recovery snapshots remain complete.
+  This does not change storage: the local SQLite file is still opened in memory
+  at startup.
+
 ### Appointments and Contacts
 
 Create a board with the **Appointments** type. Each board contains many
@@ -110,7 +131,8 @@ appointments; contacts are shared across all appointment boards.
   appointment.
 - Search saved contacts by name, phone, or email above the person dropdown.
   The picker queries at most 21 contact summaries to show 20 matches and detect
-  when to narrow your search, rather than loading every contact and their notes.
+  when more results exist, rather than loading every contact and their notes.
+  Search to narrow the results or choose **Load 20 more**.
   Your selected contact stays available even when it is outside those matches.
 - Alternatively, open **Contacts** in the sidebar and choose **+ Create
   contact**, without creating an appointment. Click a contact to view or edit
