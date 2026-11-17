@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const contact = { id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes' };
 const appointment = { id: 3, section_id: 1, contact_id: 8, person_name: 'Sam',
@@ -17,9 +18,11 @@ const result = rows => rows.length ? [{ columns: Object.keys(rows[0]), values: r
 function setup() {
   const elements = new Map();
   const element = id => {
-    if (!elements.has(id)) elements.set(id, { value: '', checked: false, disabled: false,
+    if (!elements.has(id)) elements.set(id, { value: id.endsWith('Format') ? 'plain' : id.endsWith('Direction') ? 'auto' : '',
+      checked: false, disabled: false,
       innerHTML: '', hidden: false, textContent: '', scrollTop: 0,
-      classList: { add() {}, remove() {} }, focus() {}, reset() {}, reportValidity: () => true });
+      classList: { add() {}, remove() {}, toggle() {} }, focus() {}, reset() {}, reportValidity: () => true,
+      setAttribute() {}, replaceChildren() {} });
     return elements.get(id);
   };
   const statements = [];
@@ -54,6 +57,7 @@ function setup() {
     },
   });
   context.escAttr = context.esc;
+  vm.runInContext(markdown, context);
   vm.runInContext(source, context);
   context.getAppointments = () => [];
   context.getAppointment = id => appointments.find(row => row.id === id);
@@ -88,7 +92,8 @@ for (const saveContact of [true, false]) {
     assert.equal(statements.filter(row => row.sql.startsWith('INSERT INTO contacts')).length, saveContact ? 1 : 0);
     const saved = statements.find(row => row.sql.startsWith('INSERT INTO appointments'));
     assert.deepEqual(saved.params, [1, saveContact ? 77 : null, 'New person', '555',
-      'new@example.test', 'Details', 'Planning', '2026-11-17', '09:00', '10:00', 'Discuss next steps', 'Office']);
+      'new@example.test', 'Details', 'Planning', '2026-11-17', '09:00', '10:00', 'Discuss next steps', 'Office',
+      'plain', 'auto', 'plain', 'auto']);
     assert.equal(persisted(), 1);
     assert.deepEqual(backups, ['appointment-created']);
   });
@@ -117,7 +122,7 @@ test('standalone contact creation persists without creating an appointment', asy
   element('contactPersonPhone').value = '456';
   await context.saveContact({ preventDefault() {} });
   assert.deepEqual(statements.find(row => row.sql.startsWith('INSERT INTO contacts')).params,
-    ['Independent contact', '456', '', '']);
+    ['Independent contact', '456', '', '', 'plain', 'auto']);
   assert.equal(statements.some(row => row.sql.includes('INSERT INTO appointments')), false);
   assert.deepEqual(backups, ['contact-created']);
 });
@@ -181,7 +186,7 @@ test('storage failure restores both tables, keeps the draft, and creates no chan
   await context.saveAppointment({ preventDefault() {} });
   assert.ok(statements.some(row => row.sql === 'DELETE FROM appointments'));
   const restored = statements.filter(row => row.sql.startsWith('INSERT INTO appointments'));
-  assert.deepEqual(restored.at(-1).params, Object.values(appointment));
+  assert.deepEqual(restored.at(-1).params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto']);
   assert.equal(element('appointmentId').value, '');
   assert.equal(element('appointmentPersonName').value, 'New person');
   assert.equal(element('appointmentSaveButton').disabled, false);
@@ -219,7 +224,7 @@ test('snapshots restore contacts before appointments and accept older backups', 
   context.restoreAppointmentSnapshot(snapshot);
   assert.match(statements[0].sql, /^INSERT INTO contacts/);
   assert.match(statements[1].sql, /^INSERT INTO appointments/);
-  assert.deepEqual(statements[1].params, Object.values(appointment));
+  assert.deepEqual(statements[1].params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto']);
   assert.doesNotThrow(() => context.validateAppointmentSnapshot({ sections: [], items: [] }));
 });
 
@@ -333,3 +338,139 @@ test('calendar export reports a deleted appointment instead of downloading it', 
   assert.deepEqual(downloads, []);
   assert.deepEqual(warnings, ['Appointment no longer exists']);
 });
+
+test('appointment descriptions and one-off contact notes preserve exact Markdown and independent directions', async () => {
+  const { context, element, statements } = setup();
+  const description = '  ## Meeting\n\n**Keep** two spaces  \nnext\n';
+  const notes = '  > Contact notes\n\n- [ ] Follow up\n';
+  element('appointmentDescription').value = description;
+  element('appointmentDescriptionFormat').value = 'markdown';
+  element('appointmentDescriptionDirection').value = 'rtl';
+  element('appointmentPersonNotes').value = notes;
+  element('appointmentPersonNotesFormat').value = 'markdown';
+  element('appointmentPersonNotesDirection').value = 'ltr';
+  element('appointmentSaveContact').checked = false;
+  await context.saveAppointment({ preventDefault() {} });
+  const saved = statements.find(row => row.sql.startsWith('INSERT INTO appointments'));
+  assert.equal(saved.params[5], notes);
+  assert.equal(saved.params[10], description);
+  assert.deepEqual(saved.params.slice(12), ['markdown', 'rtl', 'markdown', 'ltr']);
+});
+
+test('saving a contact automatically retains its notes formatting for future appointments', async () => {
+  const { context, element, statements } = setup();
+  element('appointmentPersonNotes').value = '\n## Contact\n\n**Notes**\n';
+  element('appointmentPersonNotesFormat').value = 'markdown';
+  element('appointmentPersonNotesDirection').value = 'rtl';
+  await context.saveAppointment({ preventDefault() {} });
+  assert.deepEqual(statements.find(row => row.sql.startsWith('INSERT INTO contacts')).params.slice(3),
+    ['\n## Contact\n\n**Notes**\n', 'markdown', 'rtl']);
+});
+
+test('standalone contact editor preserves exact Markdown notes and selected direction', async () => {
+  const { context, element, statements } = setup();
+  element('contactPersonName').value = 'New contact';
+  element('contactPersonNotes').value = '  ## Notes\n\n> Exact source\n';
+  element('contactPersonNotesFormat').value = 'markdown';
+  element('contactPersonNotesDirection').value = 'rtl';
+  await context.saveContact({ preventDefault() {} });
+  assert.deepEqual(statements.find(row => row.sql.startsWith('INSERT INTO contacts')).params.slice(3),
+    ['  ## Notes\n\n> Exact source\n', 'markdown', 'rtl']);
+});
+
+test('appointment reader forwards description and contact-note formatting to the common renderer', () => {
+  const { context, appointments } = setup();
+  Object.assign(appointments[0], { description_format: 'markdown', description_direction: 'rtl',
+    person_notes_format: 'markdown', person_notes_direction: 'ltr' });
+  const calls = [];
+  context.renderDescription = (...args) => { calls.push(args); return '<p>Rendered</p>'; };
+  context.openAppointmentDetails(3);
+  assert.deepEqual(calls, [
+    ['Contact notes', 'markdown', 'ltr'],
+    ['Discuss next steps\nKeep this line', 'markdown', 'rtl'],
+  ]);
+});
+
+test('new formatting metadata round-trips through snapshots while old snapshots default to plain Auto', () => {
+  const { context, statements } = setup();
+  const snapshot = { sections: [{ columns: ['id', 'type'], values: [[1, 'appointment']] }],
+    contacts: result([{ ...contact, notes_format: 'markdown', notes_direction: 'rtl' }]),
+    appointments: result([{ ...appointment, description_format: 'markdown', description_direction: 'ltr',
+      person_notes_format: 'markdown', person_notes_direction: 'rtl' }]) };
+  context.validateAppointmentSnapshot(snapshot);
+  context.restoreAppointmentSnapshot(snapshot);
+  assert.deepEqual(statements[0].params.slice(-2), ['markdown', 'rtl']);
+  assert.deepEqual(statements[1].params.slice(-4), ['markdown', 'ltr', 'markdown', 'rtl']);
+  const badContact = clone(snapshot);
+  badContact.contacts[0].values[0].splice(-1, 1, 'sideways');
+  assert.throws(() => context.validateAppointmentSnapshot(badContact), /Invalid contact/);
+  const badAppointment = clone(snapshot);
+  badAppointment.appointments[0].values[0].splice(-4, 1, 'html');
+  assert.throws(() => context.validateAppointmentSnapshot(badAppointment), /Invalid appointment/);
+});
+
+test('saving waits for image paste in either rich-text field', async () => {
+  const { context, element, statements, warnings } = setup();
+  vm.runInContext("richTextImagePastes.add('appointmentDescription')", context);
+  await context.saveAppointment({ preventDefault() {} });
+  element('contactPersonName').value = 'Contact';
+  await context.saveContact({ preventDefault() {} });
+  assert.deepEqual(statements, []);
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings.every(message => message.includes('image paste')));
+});
+
+function richEditorSetup() {
+  const setupResult = setup();
+  const { context, element } = setupResult;
+  const input = element('appointmentDescription');
+  context.Event = class { constructor(type) { this.type = type; } };
+  context.document.execCommand = () => false;
+  input.focus = () => { context.document.activeElement = input; };
+  input.setSelectionRange = (start, end) => { input.selectionStart = start; input.selectionEnd = end; };
+  input.setRangeText = (text, start, end) => {
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    input.selectionStart = input.selectionEnd = start + text.length;
+  };
+  input.dispatchEvent = () => {};
+  input.closest = () => ({ classList: { contains: () => true } });
+  vm.runInContext(app.slice(app.indexOf('function insertDescriptionText('), app.indexOf('async function pasteDescriptionImages(')), context);
+  return { ...setupResult, input };
+}
+
+test('embedded editor uses existing formatting and preview helpers without rewriting Markdown', () => {
+  const { context, element, input } = richEditorSetup();
+  context.setRichTextEditor('appointmentDescription', 'hello', 'markdown', 'rtl');
+  input.selectionStart = 0;
+  input.selectionEnd = 5;
+  context.formatRichTextEditor('appointmentDescription', 'bold');
+  assert.equal(input.value, '**hello**');
+  const calls = [];
+  context.renderDescriptionContent = (...args) => { calls.push(args); return '<strong>hello</strong>'; };
+  context.setRichTextEditorMode('appointmentDescription', 'preview');
+  assert.equal(element('appointmentDescriptionPreview').innerHTML, '<strong>hello</strong>');
+  assert.deepEqual(calls, [['**hello**', 'markdown', 'rtl']]);
+  assert.equal(input.hidden, true);
+  context.setRichTextEditorMode('appointmentDescription', 'write');
+  assert.equal(input.value, '**hello**');
+  assert.equal(input.hidden, false);
+});
+
+for (const changed of [false, true]) {
+  test('embedded image paste ' + (changed ? 'rejects a changed editor' : 'inserts using the existing image Markdown helper'), async () => {
+    const { context, input, warnings } = richEditorSetup();
+    context.setRichTextEditor('appointmentDescription', 'before after', 'markdown', 'auto');
+    input.selectionStart = input.selectionEnd = 7;
+    input.focus();
+    let release;
+    context.readDescriptionImage = () => new Promise(resolve => { release = resolve; });
+    const pending = context.onRichTextPaste({ currentTarget: input, preventDefault() {},
+      clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => ({}) }] } }, 'appointmentDescription');
+    if (changed) context.setRichTextEditor('appointmentDescription', 'New draft', 'markdown', 'auto');
+    release('![Pasted image](data:image/png;base64,aGVsbG8=)');
+    await pending;
+    assert.equal(input.value, changed ? 'New draft' : 'before \n\n![Pasted image](data:image/png;base64,aGVsbG8=)\n\nafter');
+    assert.equal(warnings.length, changed ? 1 : 0);
+    assert.equal(vm.runInContext('richTextImagePastes.size', context), 0);
+  });
+}

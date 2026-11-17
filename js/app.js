@@ -2669,12 +2669,7 @@ function formatDescription(action) {
     return;
   }
   try {
-    const edit = getDescriptionFormattingEdit(input.value, input.selectionStart, input.selectionEnd, action);
-    const selectionDirection = input.selectionDirection;
-    input.focus();
-    input.setSelectionRange(edit.start, edit.end);
-    insertDescriptionText(input, edit.text);
-    input.setSelectionRange(edit.selectionStart, edit.selectionEnd, selectionDirection);
+    applyDescriptionFormatting(input, action);
   } catch (error) {
     console.error('Description formatting failed', error);
     toast('Could not format description: ' + error.message);
@@ -2742,11 +2737,7 @@ async function pasteDescriptionImages(input, files) {
         input.value !== original || input.selectionStart !== start || input.selectionEnd !== end) {
       throw new Error('The editor changed while reading the image. Paste it again at the desired position.');
     }
-    const before = original.slice(0, start);
-    const after = original.slice(end);
-    const prefix = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
-    const suffix = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
-    insertDescriptionText(input, prefix + images.join('\n\n') + suffix);
+    insertDescriptionText(input, getDescriptionImagePasteText(original, start, end, images));
   } catch (error) {
     console.error('Description image paste failed', error);
     toast('Could not paste image: ' + error.message);

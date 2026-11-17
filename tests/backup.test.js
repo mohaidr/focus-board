@@ -7,6 +7,7 @@ const { webcrypto } = require('node:crypto');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
 const appointmentsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js'), 'utf8');
+const markdownSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const date = '2026-11-08T12:00:00.000Z';
 
@@ -93,10 +94,12 @@ function appointmentDataSetup({ accepted = true, failPersist = false } = {}) {
   const tables = {
     sections: [{ id: 1, name: 'Meetings', color: '#123456', type: 'appointment' }],
     items: [], followups: [], app_settings: [],
-    contacts: [{ id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes' }],
+    contacts: [{ id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes',
+      notes_format: 'plain', notes_direction: 'auto' }],
     appointments: [{ id: 3, section_id: 1, contact_id: 8, person_name: 'Sam', person_phone: '123',
       person_email: 'sam@example.test', person_notes: 'Contact notes', title: 'Planning',
-      date: '2026-11-17', start_time: '09:00', end_time: '10:00', description: 'Exact\nappointment details', location: 'Office' }],
+      date: '2026-11-17', start_time: '09:00', end_time: '10:00', description: 'Exact\nappointment details', location: 'Office',
+      description_format: 'plain', description_direction: 'auto', person_notes_format: 'plain', person_notes_direction: 'auto' }],
   };
   const elements = new Map();
   const element = id => {
@@ -149,6 +152,7 @@ function appointmentDataSetup({ accepted = true, failPersist = false } = {}) {
     assert.equal(persisted, true, 'Back up only after local saving succeeds');
     return requestBackup(reason);
   };
+  vm.runInContext(markdownSource, context);
   vm.runInContext(appointmentsSource, context);
   vm.runInContext(app.slice(app.indexOf('async function saveSection('), app.indexOf('function onItemProtectionChange(')), context);
   return { ...base, tables, element };

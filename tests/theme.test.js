@@ -220,7 +220,34 @@ test('theme bootstrap and metadata precede styles, and the bootstrap is cached o
     assert.ok(position >= 0 && position < script);
   }
   assert.match(worker, /'\.\/js\/theme\.js'/);
-  assert.match(worker, /const CACHE_VERSION = 55;/);
+  assert.match(worker, /const CACHE_VERSION = 56;/);
+});
+
+test('local editor assets are revalidated on reload and still fall back to their offline cache', async () => {
+  const listeners = {};
+  const requests = [];
+  const cached = { cached: true };
+  const fresh = { status: 200, clone: () => ({}) };
+  let offline = false;
+  const context = vm.createContext({
+    URL,
+    self: { addEventListener: (name, handler) => { listeners[name] = handler; } },
+    caches: { match: async () => cached, open: async () => ({ put() {} }) },
+    fetch: async (request, options) => {
+      requests.push({ request, options });
+      if (offline) throw new Error('Offline');
+      return fresh;
+    },
+  });
+  vm.runInContext(worker, context);
+  const request = { url: 'http://localhost/js/markdown.js', mode: 'same-origin' };
+  let response;
+  listeners.fetch({ request, respondWith: promise => { response = promise; } });
+  assert.equal(await response, fresh);
+  assert.equal(requests[0].options.cache, 'no-cache');
+  offline = true;
+  listeners.fetch({ request, respondWith: promise => { response = promise; } });
+  assert.equal(await response, cached);
 });
 
 const darkBlock = css.match(/:root\s*\{([\s\S]*?)\}/);

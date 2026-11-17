@@ -1,4 +1,4 @@
-const CACHE_VERSION = 55;
+const CACHE_VERSION = 56;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -63,7 +63,7 @@ self.addEventListener('fetch', (e) => {
 
   // Network-first for all local assets — always get the latest
   e.respondWith(
-    fetch(e.request).then((resp) => {
+    fetch(e.request, { cache: 'no-cache' }).then((resp) => {
       if (resp && resp.status === 200) {
         const clone = resp.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));

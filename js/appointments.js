@@ -9,6 +9,9 @@ let appointmentWritePending = false;
 const CONTACT_COLUMNS = ['id', 'name', 'phone', 'email', 'notes'];
 const APPOINTMENT_COLUMNS = ['id', 'section_id', 'contact_id', 'person_name', 'person_phone',
   'person_email', 'person_notes', 'title', 'date', 'start_time', 'end_time', 'description', 'location'];
+const CONTACT_TEXT_METADATA = { notes_format: 'plain', notes_direction: 'auto' };
+const APPOINTMENT_TEXT_METADATA = { description_format: 'plain', description_direction: 'auto',
+  person_notes_format: 'plain', person_notes_direction: 'auto' };
 
 function appointmentRows(sql, params = []) {
   const result = db.exec(sql, params);
@@ -42,7 +45,8 @@ function getContacts() {
 
 function getAppointments(date = null, sectionId = null) {
   return appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
-    c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes
+    c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
+    c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
     FROM appointments a JOIN sections s ON s.id = a.section_id
     LEFT JOIN contacts c ON c.id = a.contact_id
     WHERE 1 = 1 ${date === null ? '' : 'AND a.date = ?'} ${sectionId === null ? '' : 'AND a.section_id = ?'}
@@ -79,14 +83,16 @@ function hydrateAppointmentContact(appointment) {
   if (appointment.contact_name !== null && appointment.contact_name !== undefined) {
     return { ...appointment, person_name: appointment.contact_name,
       person_phone: appointment.contact_phone, person_email: appointment.contact_email,
-      person_notes: appointment.contact_notes };
+      person_notes: appointment.contact_notes, person_notes_format: appointment.contact_notes_format,
+      person_notes_direction: appointment.contact_notes_direction };
   }
   return appointment;
 }
 
 function getAppointment(id) {
   const row = appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
-    c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes
+    c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
+    c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
     FROM appointments a JOIN sections s ON s.id = a.section_id
     LEFT JOIN contacts c ON c.id = a.contact_id WHERE a.id = ?`, [id])[0];
   return row ? hydrateAppointmentContact(row) : null;
@@ -262,11 +268,13 @@ function ensureAppointmentModals() {
       <div class="form-group"><label for="${prefix}Phone">Phone</label><input id="${prefix}Phone" type="tel" dir="auto"></div>
       <div class="form-group"><label for="${prefix}Email">Email</label><input id="${prefix}Email" type="email" dir="auto"></div>
     </div>
-    <div class="form-group"><label for="${prefix}Notes">Contact notes</label><textarea id="${prefix}Notes" dir="auto"></textarea></div>`;
+    ${renderRichTextEditor(prefix + 'Notes', 'Contact notes')}`;
   document.body.insertAdjacentHTML('beforeend', `
     <div class="modal-overlay" id="appointmentModal">
       <form class="modal appointment-editor" id="appointmentForm" role="dialog" aria-modal="true" aria-labelledby="appointmentModalTitle" onsubmit="saveAppointment(event)">
-        <h2 id="appointmentModalTitle">New appointment</h2>
+        <div class="item-editor-header"><h2 id="appointmentModalTitle">New appointment</h2>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="closeModal('appointmentModal')">Close &#10005;</button></div>
+        <div class="item-editor-body appointment-editor-grid"><div>
         <input type="hidden" id="appointmentId"><input type="hidden" id="appointmentSection">
         <div class="form-group"><label for="appointmentTitle">Appointment title *</label><input id="appointmentTitle" dir="auto" required maxlength="300"></div>
         <div class="form-group"><label for="appointmentDate">Date *</label><input id="appointmentDate" type="date" required></div>
@@ -281,8 +289,10 @@ function ensureAppointmentModals() {
           <label class="appointment-checkbox"><input type="checkbox" id="appointmentSaveContact" checked> Save contact for future appointments</label>
         </fieldset>
         <p class="appointment-hint" id="appointmentExistingContact" hidden></p>
-        <div class="form-group"><label for="appointmentDescription">Appointment description</label><textarea id="appointmentDescription" dir="auto"></textarea></div>
+        </div><div class="appointment-description-panel">
+        ${renderRichTextEditor('appointmentDescription', 'Appointment description')}
         <div class="form-group"><label for="appointmentLocation">Location / meeting link</label><input id="appointmentLocation" dir="auto"></div>
+        </div></div>
         <div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeModal('appointmentModal')">Cancel</button>
           <button class="btn btn-primary" id="appointmentSaveButton" type="submit">Save appointment</button></div>
       </form>
@@ -291,9 +301,12 @@ function ensureAppointmentModals() {
       <section class="modal appointment-editor" role="dialog" aria-modal="true" aria-labelledby="appointmentDetailsTitle" id="appointmentDetails"></section>
     </div>
     <div class="modal-overlay" id="contactModal">
-      <form class="modal" id="contactForm" role="dialog" aria-modal="true" aria-labelledby="contactModalTitle" onsubmit="saveContact(event)">
-        <h2 id="contactModalTitle">Create contact</h2><input type="hidden" id="contactId">${personFields('contactPerson')}
+      <form class="modal appointment-editor" id="contactForm" role="dialog" aria-modal="true" aria-labelledby="contactModalTitle" onsubmit="saveContact(event)">
+        <div class="item-editor-header"><h2 id="contactModalTitle">Create contact</h2>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="closeModal('contactModal')">Close &#10005;</button></div>
+        <div class="item-editor-body"><input type="hidden" id="contactId">${personFields('contactPerson')}
         <p class="appointment-hint">Contact updates appear in all linked appointments.</p>
+        </div>
         <div class="modal-actions"><button class="btn btn-ghost" type="button" onclick="closeModal('contactModal')">Cancel</button>
           <button class="btn btn-primary" id="contactSaveButton" type="submit">Save contact</button></div>
       </form>
@@ -301,14 +314,18 @@ function ensureAppointmentModals() {
 }
 
 function fillPersonFields(prefix, person) {
-  for (const [suffix, field] of [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Notes', 'notes']]) {
+  for (const [suffix, field] of [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email']]) {
     document.getElementById(prefix + suffix).value = person[field] || '';
   }
+  setRichTextEditor(prefix + 'Notes', person.notes || '', person.notes_format || 'plain', person.notes_direction || 'auto');
 }
 
 function readPersonFields(prefix) {
-  return Object.fromEntries([['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Notes', 'notes']]
-    .map(([suffix, field]) => [field, document.getElementById(prefix + suffix).value.trim()]));
+  const notes = readRichTextEditor(prefix + 'Notes');
+  if (!notes) return null;
+  return { ...Object.fromEntries([['Name', 'name'], ['Phone', 'phone'], ['Email', 'email']]
+    .map(([suffix, field]) => [field, document.getElementById(prefix + suffix).value.trim()])),
+  notes: notes.source, notes_format: notes.format, notes_direction: notes.direction };
 }
 
 function fillAppointmentContactOptions(selected = '') {
@@ -346,10 +363,12 @@ function openAppointmentModal(id = null, start = '09:00') {
   const endMinutes = Math.min(1439, appointmentMinutes(start) + 60);
   document.getElementById('appointmentEnd').value = appointment ? appointment.end_time
     : `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
-  document.getElementById('appointmentDescription').value = appointment ? appointment.description : '';
+  setRichTextEditor('appointmentDescription', appointment ? appointment.description : '',
+    appointment?.description_format || 'plain', appointment?.description_direction || 'auto');
   document.getElementById('appointmentLocation').value = appointment ? appointment.location : '';
   fillPersonFields('appointmentPerson', appointment ? { name: appointment.person_name,
-    phone: appointment.person_phone, email: appointment.person_email, notes: appointment.person_notes } : {});
+    phone: appointment.person_phone, email: appointment.person_email, notes: appointment.person_notes,
+    notes_format: appointment.person_notes_format, notes_direction: appointment.person_notes_direction } : {});
   document.getElementById('appointmentSaveContact').checked = !appointment;
   fillAppointmentContactOptions(appointment && appointment.contact_id ? String(appointment.contact_id) : '');
   closeModal('appointmentDetailsModal');
@@ -396,6 +415,7 @@ async function writeAppointmentChange(action, reason) {
 
 async function saveAppointment(event) {
   event.preventDefault();
+  if (richTextImagePastes.size) { toast('Please wait for the image paste to finish'); return; }
   if (appointmentSavePending || !document.getElementById('appointmentForm').reportValidity()) return;
   const value = id => document.getElementById(id).value.trim();
   const id = Number(value('appointmentId')) || null;
@@ -404,6 +424,8 @@ async function saveAppointment(event) {
   const start = value('appointmentStart');
   const end = value('appointmentEnd');
   const title = value('appointmentTitle');
+  const description = readRichTextEditor('appointmentDescription');
+  if (!description) return;
   if (!validAppointmentDate(date) || !validAppointmentTime(start) || !validAppointmentTime(end) || end <= start) {
     toast('Choose a valid date and an end time after the start time on the same day.');
     return;
@@ -413,7 +435,8 @@ async function saveAppointment(event) {
   if (!board || (id && !getAppointment(id))) { toast('Appointment or board no longer exists'); return; }
   let contactId = Number(value('appointmentContact')) || null;
   const person = contactId ? getContacts().find(contact => contact.id === contactId) : readPersonFields('appointmentPerson');
-  if (!person || !person.name) { toast('Person name is required'); return; }
+  if (!person) return;
+  if (!person.name) { toast('Person name is required'); return; }
   const conflicts = findAppointmentConflicts(getAppointments(date), { id, date, start_time: start, end_time: end });
   if (conflicts.length && !confirm('This overlaps with:\n' + conflicts.map(other =>
     `${other.start_time} - ${other.end_time}: ${other.title} (${other.board_name})`).join('\n') + '\n\nSave anyway?')) return;
@@ -422,19 +445,23 @@ async function saveAppointment(event) {
   try {
     const saved = await writeAppointmentChange(() => {
       if (!contactId && document.getElementById('appointmentSaveContact').checked) {
-        db.run('INSERT INTO contacts (name, phone, email, notes) VALUES (?, ?, ?, ?)',
-          [person.name, person.phone, person.email, person.notes]);
+        db.run('INSERT INTO contacts (name, phone, email, notes, notes_format, notes_direction) VALUES (?, ?, ?, ?, ?, ?)',
+          [person.name, person.phone, person.email, person.notes, person.notes_format || 'plain', person.notes_direction || 'auto']);
         contactId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
       }
       const params = [sectionId, contactId, person.name, person.phone, person.email, person.notes,
-        title, date, start, end, value('appointmentDescription'), value('appointmentLocation')];
+        title, date, start, end, description.source, value('appointmentLocation'),
+        description.format, description.direction, person.notes_format || 'plain', person.notes_direction || 'auto'];
       if (id) {
         db.run(`UPDATE appointments SET section_id = ?, contact_id = ?, person_name = ?, person_phone = ?,
-          person_email = ?, person_notes = ?, title = ?, date = ?, start_time = ?, end_time = ?, description = ?, location = ?
+          person_email = ?, person_notes = ?, title = ?, date = ?, start_time = ?, end_time = ?, description = ?, location = ?,
+          description_format = ?, description_direction = ?, person_notes_format = ?, person_notes_direction = ?
           WHERE id = ?`, [...params, id]);
       } else {
         db.run(`INSERT INTO appointments (section_id, contact_id, person_name, person_phone, person_email,
-          person_notes, title, date, start_time, end_time, description, location) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, params);
+          person_notes, title, date, start_time, end_time, description, location,
+          description_format, description_direction, person_notes_format, person_notes_direction)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, params);
       }
     }, id ? 'appointment-updated' : 'appointment-created');
     if (!saved) return;
@@ -459,9 +486,12 @@ function openAppointmentDetails(id) {
     <p>${esc(appointmentDateLabel(appointment.date))}<br>${appointment.start_time} - ${appointment.end_time}</p>
     <p class="appointment-hint" dir="auto">${esc(appointment.board_name)}</p>
     <h3>Person</h3><div class="appointment-detail-text" dir="auto">${esc(appointment.person_name)}</div>
-    ${[appointment.person_phone, appointment.person_email, appointment.person_notes].filter(Boolean)
+    ${[appointment.person_phone, appointment.person_email].filter(Boolean)
       .map(value => `<div class="appointment-detail-text" dir="auto">${esc(value)}</div>`).join('')}
-    <h3>Description</h3><div class="appointment-detail-text" dir="auto">${esc(appointment.description) || 'No description'}</div>
+    ${appointment.person_notes ? `<h3>Contact notes</h3>${renderDescription(appointment.person_notes,
+      appointment.person_notes_format || 'plain', appointment.person_notes_direction || 'auto')}` : ''}
+    <h3>Description</h3>${appointment.description ? renderDescription(appointment.description,
+      appointment.description_format || 'plain', appointment.description_direction || 'auto') : '<p>No description</p>'}
     ${appointment.location ? `<h3>Location / meeting link</h3><div class="appointment-detail-text" dir="auto">${esc(appointment.location)}</div>` : ''}
     <div class="modal-actions appointment-toolbar">
       <button class="btn btn-ghost" onclick="closeModal('appointmentDetailsModal')">Close</button>
@@ -511,8 +541,10 @@ function openContactModal(id = null) {
 
 async function saveContact(event) {
   event.preventDefault();
+  if (richTextImagePastes.size) { toast('Please wait for the image paste to finish'); return; }
   if (contactSavePending || !document.getElementById('contactForm').reportValidity()) return;
   const person = readPersonFields('contactPerson');
+  if (!person) return;
   if (!person.name) { toast('Person name is required'); return; }
   const id = Number(document.getElementById('contactId').value) || null;
   if (id && !getContacts().some(contact => contact.id === id)) { toast('Contact no longer exists'); return; }
@@ -520,10 +552,10 @@ async function saveContact(event) {
   document.getElementById('contactSaveButton').disabled = true;
   try {
     if (!await writeAppointmentChange(() => {
-      const params = [person.name, person.phone, person.email, person.notes];
-      if (id) db.run('UPDATE contacts SET name = ?, phone = ?, email = ?, notes = ? WHERE id = ?', [...params, id]);
+      const params = [person.name, person.phone, person.email, person.notes, person.notes_format, person.notes_direction];
+      if (id) db.run('UPDATE contacts SET name = ?, phone = ?, email = ?, notes = ?, notes_format = ?, notes_direction = ? WHERE id = ?', [...params, id]);
       else {
-        db.run('INSERT INTO contacts (name, phone, email, notes) VALUES (?, ?, ?, ?)', params);
+        db.run('INSERT INTO contacts (name, phone, email, notes, notes_format, notes_direction) VALUES (?, ?, ?, ?, ?, ?)', params);
       }
     }, id ? 'contact-updated' : 'contact-created')) return;
     closeModal('contactModal');
@@ -541,12 +573,14 @@ function appointmentSnapshotRows(snapshot, key, columns) {
   if (!Array.isArray(results) || results.length > 1) throw new Error('Invalid ' + key + ' data');
   if (!results.length) return [];
   const result = results[0];
-  if (!Array.isArray(result.columns) || result.columns.length !== columns.length ||
-      new Set(result.columns).size !== columns.length || !columns.every(column => result.columns.includes(column)) ||
+  const metadata = key === 'contacts' ? CONTACT_TEXT_METADATA : APPOINTMENT_TEXT_METADATA;
+  const allowed = [...columns, ...Object.keys(metadata)];
+  if (!Array.isArray(result.columns) || !result.columns.every(column => allowed.includes(column)) ||
+      new Set(result.columns).size !== result.columns.length || !columns.every(column => result.columns.includes(column)) ||
       !Array.isArray(result.values)) throw new Error('Invalid ' + key + ' columns');
   return result.values.map(row => {
-    if (!Array.isArray(row) || row.length !== columns.length) throw new Error('Invalid ' + key + ' row');
-    return Object.fromEntries(result.columns.map((column, index) => [column, row[index]]));
+    if (!Array.isArray(row) || row.length !== result.columns.length) throw new Error('Invalid ' + key + ' row');
+    return { ...metadata, ...Object.fromEntries(result.columns.map((column, index) => [column, row[index]])) };
   });
 }
 
@@ -557,7 +591,8 @@ function validateAppointmentSnapshot(snapshot) {
   const contactIds = new Set();
   for (const contact of contacts) {
     if (!validId(contact.id) || contactIds.has(contact.id) ||
-        !CONTACT_COLUMNS.slice(1).every(key => typeof contact[key] === 'string') || !contact.name.trim()) {
+        !CONTACT_COLUMNS.slice(1).every(key => typeof contact[key] === 'string') || !contact.name.trim() ||
+        !['plain', 'markdown'].includes(contact.notes_format) || !isDescriptionDirection(contact.notes_direction)) {
       throw new Error('Invalid contact');
     }
     contactIds.add(contact.id);
@@ -573,16 +608,22 @@ function validateAppointmentSnapshot(snapshot) {
         !APPOINTMENT_COLUMNS.slice(3).every(key => typeof appointment[key] === 'string') ||
         !appointment.title.trim() || !appointment.person_name.trim() || !validAppointmentDate(appointment.date) ||
         !validAppointmentTime(appointment.start_time) || !validAppointmentTime(appointment.end_time) ||
-        appointment.end_time <= appointment.start_time) throw new Error('Invalid appointment');
+        appointment.end_time <= appointment.start_time ||
+        !['plain', 'markdown'].includes(appointment.description_format) || !isDescriptionDirection(appointment.description_direction) ||
+        !['plain', 'markdown'].includes(appointment.person_notes_format) || !isDescriptionDirection(appointment.person_notes_direction)) {
+      throw new Error('Invalid appointment');
+    }
     ids.add(appointment.id);
   }
 }
 
 function restoreAppointmentSnapshot(snapshot) {
   for (const [key, columns] of [['contacts', CONTACT_COLUMNS], ['appointments', APPOINTMENT_COLUMNS]]) {
+    const metadata = key === 'contacts' ? CONTACT_TEXT_METADATA : APPOINTMENT_TEXT_METADATA;
+    const restoredColumns = [...columns, ...Object.keys(metadata)];
     for (const row of appointmentSnapshotRows(snapshot, key, columns)) {
-      db.run(`INSERT INTO ${key} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
-        columns.map(column => row[column]));
+      db.run(`INSERT INTO ${key} (${restoredColumns.join(', ')}) VALUES (${restoredColumns.map(() => '?').join(', ')})`,
+        restoredColumns.map(column => row[column]));
     }
   }
 }

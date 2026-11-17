@@ -1,5 +1,175 @@
 let descriptionMarkdownParser = null;
 let descriptionMarkdownConverter = null;
+const richTextImagePastes = new Set();
+const richTextEditorSessions = new Map();
+
+function renderRichTextEditor(id, label) {
+  const actions = [['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'],
+    ['heading', 'Heading'], ['bullet', 'Bullets'], ['numbered', 'Numbered'],
+    ['checklist', 'Checklist'], ['quote', 'Quote'], ['code', 'Code'], ['code-block', 'Code block'], ['link', 'Link']];
+  return `<div class="form-group rich-text-editor">
+    <label for="${id}">${esc(label)}</label>
+    <div class="description-controls">
+      <div class="description-option"><label for="${id}Format">Format</label>
+        <select class="form-select" id="${id}Format" onchange="updateRichTextEditor('${id}')">
+          <option value="plain">Plain text</option><option value="markdown">Markdown</option>
+        </select></div>
+      <div class="description-option"><label for="${id}Direction">Direction</label>
+        <select class="form-select" id="${id}Direction" onchange="updateRichTextEditor('${id}')">
+          <option value="auto">Auto</option><option value="ltr">Left to right</option><option value="rtl">Right to left</option>
+        </select></div>
+      <div class="description-views" id="${id}Views" role="group" aria-label="${escAttr(label)} view" hidden>
+        <button type="button" class="btn btn-ghost btn-sm" id="${id}Write" aria-pressed="true" aria-controls="${id}" onclick="setRichTextEditorMode('${id}', 'write')">Write</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="${id}PreviewButton" aria-pressed="false" aria-controls="${id}Preview" onclick="setRichTextEditorMode('${id}', 'preview')">Preview</button>
+      </div>
+    </div>
+    <div class="description-toolbar" id="${id}Toolbar" role="group" aria-label="${escAttr(label)} formatting" hidden
+      onmousedown="if(event.target.closest('button'))event.preventDefault()">
+      ${actions.map(([action, title]) => `<button type="button" class="btn btn-ghost btn-sm" onclick="formatRichTextEditor('${id}', '${action}')">${title}</button>`).join('')}
+    </div>
+    <textarea id="${id}" dir="auto" aria-describedby="${id}Hint" oninput="updateRichTextPreview('${id}')"
+      onkeydown="onRichTextKeydown(event, '${id}')" onpaste="onRichTextPaste(event, '${id}')"></textarea>
+    <div class="item-detail-desc markdown-content description-preview" id="${id}Preview" dir="auto" aria-live="polite" hidden></div>
+    <div class="form-hint no-indent" id="${id}Hint" hidden>Use the formatting toolbar, or Ctrl/Cmd+B, I, K.
+      Supports Markdown, tables, code blocks, formatted paste, and pasted images. Typed HTML is shown as text.</div>
+  </div>`;
+}
+
+function setRichTextEditor(id, source = '', format = 'plain', direction = 'auto') {
+  document.getElementById(id).value = source;
+  document.getElementById(id + 'Format').value = format;
+  document.getElementById(id + 'Direction').value = direction;
+  updateRichTextEditor(id);
+}
+
+function readRichTextEditor(id) {
+  const format = document.getElementById(id + 'Format').value;
+  const direction = document.getElementById(id + 'Direction').value;
+  if (!['plain', 'markdown'].includes(format) || !isDescriptionDirection(direction)) {
+    toast('Choose a valid text format and writing direction');
+    return null;
+  }
+  const source = document.getElementById(id).value;
+  return { source: format === 'markdown' ? source : source.trim(), format, direction };
+}
+
+function updateRichTextEditor(id) {
+  richTextEditorSessions.set(id, (richTextEditorSessions.get(id) || 0) + 1);
+  const input = document.getElementById(id);
+  const markdown = document.getElementById(id + 'Format').value === 'markdown';
+  input.dir = document.getElementById(id + 'Direction').value;
+  document.getElementById(id + 'Preview').dir = input.dir;
+  input.classList.toggle('markdown-editor', markdown);
+  input.placeholder = markdown ? 'Write Markdown: **bold**, - lists, `code`...' : 'Details, notes, context...';
+  document.getElementById(id + 'Views').hidden = !markdown;
+  document.getElementById(id + 'Hint').hidden = !markdown;
+  setRichTextEditorMode(id, 'write');
+}
+
+function setRichTextEditorMode(id, mode) {
+  const markdown = document.getElementById(id + 'Format').value === 'markdown';
+  const preview = mode === 'preview' && markdown;
+  document.getElementById(id).hidden = preview;
+  document.getElementById(id + 'Preview').hidden = !preview;
+  document.getElementById(id + 'Toolbar').hidden = preview || !markdown;
+  document.getElementById(id + 'Write').setAttribute('aria-pressed', String(!preview));
+  document.getElementById(id + 'PreviewButton').setAttribute('aria-pressed', String(preview));
+  if (preview) updateRichTextPreview(id);
+  else document.getElementById(id + 'Preview').replaceChildren();
+}
+
+function updateRichTextPreview(id) {
+  const preview = document.getElementById(id + 'Preview');
+  if (preview.hidden) return;
+  const text = readRichTextEditor(id);
+  if (!text) return;
+  preview.innerHTML = text.source.trim() ? renderDescriptionContent(text.source, text.format, text.direction)
+    : '<span class="description-preview-empty">Nothing to preview yet.</span>';
+}
+
+function applyDescriptionFormatting(input, action) {
+  const edit = getDescriptionFormattingEdit(input.value, input.selectionStart, input.selectionEnd, action);
+  const direction = input.selectionDirection;
+  input.focus();
+  input.setSelectionRange(edit.start, edit.end);
+  insertDescriptionText(input, edit.text);
+  input.setSelectionRange(edit.selectionStart, edit.selectionEnd, direction);
+}
+
+function formatRichTextEditor(id, action) {
+  const input = document.getElementById(id);
+  if (input.hidden || document.getElementById(id + 'Format').value !== 'markdown') {
+    toast('Switch to Markdown Write mode to use formatting.');
+    return;
+  }
+  if (richTextImagePastes.has(id)) { toast('Please wait for the image paste to finish'); return; }
+  try {
+    applyDescriptionFormatting(input, action);
+  } catch (error) {
+    console.error('Text formatting failed', error);
+    toast('Could not format text: ' + error.message);
+  }
+}
+
+function onRichTextKeydown(event, id) {
+  if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || event.isComposing ||
+      event.currentTarget.hidden || document.getElementById(id + 'Format').value !== 'markdown') return;
+  const action = { b: 'bold', i: 'italic', k: 'link' }[event.key.toLowerCase()];
+  if (!action) return;
+  event.preventDefault();
+  event.stopPropagation();
+  formatRichTextEditor(id, action);
+}
+
+function getDescriptionImagePasteText(source, start, end, images) {
+  const before = source.slice(0, start);
+  const after = source.slice(end);
+  const prefix = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+  const suffix = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+  return prefix + images.join('\n\n') + suffix;
+}
+
+async function onRichTextPaste(event, id) {
+  if (document.getElementById(id + 'Format').value !== 'markdown' || !event.clipboardData) return;
+  const input = event.currentTarget;
+  const images = Array.from(event.clipboardData.items || [])
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'));
+  if (images.length) {
+    event.preventDefault();
+    if (richTextImagePastes.has(id)) { toast('Please wait for the image paste to finish'); return; }
+    const session = richTextEditorSessions.get(id);
+    const original = input.value;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    richTextImagePastes.add(id);
+    try {
+      const markdown = await Promise.all(images.map(item => readDescriptionImage(item.getAsFile())));
+      if (session !== richTextEditorSessions.get(id) || !input.closest('.modal-overlay')?.classList.contains('active') ||
+          input.hidden || document.activeElement !== input || input.value !== original ||
+          input.selectionStart !== start || input.selectionEnd !== end) {
+        throw new Error('The editor changed while reading the image. Paste it again at the desired position.');
+      }
+      insertDescriptionText(input, getDescriptionImagePasteText(original, start, end, markdown));
+    } catch (error) {
+      console.error('Text image paste failed', error);
+      toast('Could not paste image: ' + error.message);
+    } finally {
+      richTextImagePastes.delete(id);
+    }
+    return;
+  }
+  const html = event.clipboardData.getData('text/html');
+  if (!html.trim()) return;
+  try {
+    const markdown = convertDescriptionHtmlToMarkdown(html);
+    if (!markdown) return;
+    event.preventDefault();
+    insertDescriptionText(input, markdown);
+  } catch (error) {
+    console.error('Formatted text paste failed', error);
+    toast('Could not convert formatted text. Pasting plain text instead.');
+  }
+}
 
 function isDescriptionDirection(direction) {
   return ['auto', 'ltr', 'rtl'].includes(direction);

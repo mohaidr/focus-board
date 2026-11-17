@@ -113,6 +113,12 @@ appointments; contacts are shared across all appointment boards.
   their details; changes appear in every linked appointment.
 - Add an appointment description and optional location or meeting link.
   Click a schedule entry to see its full details, edit/reschedule, or delete it.
+- Appointment descriptions and contact notes use the shared Plain text /
+  Markdown editor: formatting toolbar, Write/Preview, independent writing
+  direction, formatted-text paste, and local image paste. The roomy editor has
+  a scrolling body and keeps Save/Cancel visible. Existing text remains plain
+  until you choose Markdown. Formatting and exact Markdown source travel with
+  contacts, appointments, JSON exports, and backups.
 - In appointment details, choose **Add to Calendar** to download an `.ics`
   event for your calendar app, using the same export as tasks. It includes the
   selected start/end times, person, description, location, and a 15-minute alert.

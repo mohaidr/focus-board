@@ -225,6 +225,23 @@ function createTables() {
     )
   `);
   db.run('CREATE INDEX IF NOT EXISTS appointments_day ON appointments(date, start_time)');
+  for (const [table, fields] of [
+    ['contacts', ['notes']],
+    ['appointments', ['description', 'person_notes']],
+  ]) {
+    const columns = db.exec(`PRAGMA table_info(${table})`)[0].values.map(column => column[1]);
+    for (const field of fields) {
+      for (const [suffix, initial, allowed] of [
+        ['format', 'plain', "'plain', 'markdown'"],
+        ['direction', 'auto', "'auto', 'ltr', 'rtl'"],
+      ]) {
+        const column = `${field}_${suffix}`;
+        if (!columns.includes(column)) {
+          db.run(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT NOT NULL DEFAULT '${initial}' CHECK (${column} IN (${allowed}))`);
+        }
+      }
+    }
+  }
 
   // Follow-ups attached to task items
   db.run(`
