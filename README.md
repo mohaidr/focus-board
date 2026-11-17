@@ -108,6 +108,10 @@ appointments; contacts are shared across all appointment boards.
   email, and contact notes. **Save contact for future appointments** is checked
   by default for new appointments. Uncheck it to keep the details only on that
   appointment.
+- Search saved contacts by name, phone, or email above the person dropdown.
+  The picker queries at most 21 contact summaries to show 20 matches and detect
+  when to narrow your search, rather than loading every contact and their notes.
+  Your selected contact stays available even when it is outside those matches.
 - Alternatively, open **Contacts** in the sidebar and choose **+ Create
   contact**, without creating an appointment. Click a contact to view or edit
   their details; changes appear in every linked appointment.

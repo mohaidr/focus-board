@@ -43,6 +43,10 @@ function getContacts() {
   return appointmentRows('SELECT * FROM contacts ORDER BY name COLLATE NOCASE, id');
 }
 
+function getContact(id) {
+  return appointmentRows('SELECT * FROM contacts WHERE id = ?', [id])[0] || null;
+}
+
 function getAppointments(date = null, sectionId = null) {
   return appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
     c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
@@ -283,7 +287,11 @@ function ensureAppointmentModals() {
           <div class="form-group"><label for="appointmentEnd">End time *</label><input id="appointmentEnd" type="time" required></div>
         </div>
         <div class="form-group"><label for="appointmentContact">Person *</label>
+          <input id="appointmentContactSearch" type="search" dir="auto" aria-label="Search saved contacts"
+            aria-describedby="appointmentContactHint" placeholder="Search contacts by name, phone, or email"
+            oninput="fillAppointmentContactOptions(document.getElementById('appointmentContact').value)">
           <select class="form-select" id="appointmentContact" onchange="onAppointmentContactChange()"></select>
+          <p class="appointment-hint" id="appointmentContactHint" role="status"></p>
         </div>
         <fieldset id="appointmentNewPerson"><legend>New person</legend>${personFields('appointmentPerson')}
           <label class="appointment-checkbox"><input type="checkbox" id="appointmentSaveContact" checked> Save contact for future appointments</label>
@@ -329,10 +337,24 @@ function readPersonFields(prefix) {
 }
 
 function fillAppointmentContactOptions(selected = '') {
+  const term = document.getElementById('appointmentContactSearch').value.trim();
+  const matches = appointmentRows(`SELECT id, name, phone, email FROM contacts
+    WHERE instr(lower(name), lower(?)) > 0 OR instr(lower(phone), lower(?)) > 0
+      OR instr(lower(email), lower(?)) > 0
+    ORDER BY name COLLATE NOCASE, id LIMIT 21`, [term, term, term]);
+  const contacts = matches.slice(0, 20);
+  if (selected && !contacts.some(contact => String(contact.id) === selected)) {
+    const contact = getContact(Number(selected));
+    if (contact) contacts.unshift(contact);
+  }
   document.getElementById('appointmentContact').innerHTML = `<option value="">Enter a new person</option>` +
-    getContacts().map(contact => `<option value="${contact.id}">${esc(contact.name)}${contact.phone || contact.email
+    contacts.map(contact => `<option value="${contact.id}">${esc(contact.name)}${contact.phone || contact.email
       ? ' - ' + esc(contact.phone || contact.email) : ''}</option>`).join('');
   document.getElementById('appointmentContact').value = selected;
+  document.getElementById('appointmentContactHint').textContent = matches.length > 20
+    ? 'Showing the first 20 matches. Keep typing to narrow the results.'
+    : matches.length ? 'Search saved contacts by name, phone, or email.'
+      : 'No saved contacts match. Choose "Enter a new person" to add one.';
   onAppointmentContactChange();
 }
 
@@ -344,7 +366,7 @@ function onAppointmentContactChange() {
   const summary = document.getElementById('appointmentExistingContact');
   summary.hidden = !id;
   if (id) {
-    const contact = getContacts().find(contact => contact.id === id);
+    const contact = getContact(id);
     summary.textContent = contact ? [contact.name, contact.phone, contact.email].filter(Boolean).join(' | ') : '';
   }
 }
@@ -370,6 +392,7 @@ function openAppointmentModal(id = null, start = '09:00') {
     phone: appointment.person_phone, email: appointment.person_email, notes: appointment.person_notes,
     notes_format: appointment.person_notes_format, notes_direction: appointment.person_notes_direction } : {});
   document.getElementById('appointmentSaveContact').checked = !appointment;
+  document.getElementById('appointmentContactSearch').value = '';
   fillAppointmentContactOptions(appointment && appointment.contact_id ? String(appointment.contact_id) : '');
   closeModal('appointmentDetailsModal');
   document.getElementById('appointmentModal').classList.add('active');
@@ -434,7 +457,8 @@ async function saveAppointment(event) {
   const board = appointmentRows("SELECT id FROM sections WHERE id = ? AND type = 'appointment'", [sectionId])[0];
   if (!board || (id && !getAppointment(id))) { toast('Appointment or board no longer exists'); return; }
   let contactId = Number(value('appointmentContact')) || null;
-  const person = contactId ? getContacts().find(contact => contact.id === contactId) : readPersonFields('appointmentPerson');
+  const person = contactId ? getContact(contactId) : readPersonFields('appointmentPerson');
+  if (contactId && !person) { toast('Contact no longer exists. Choose another contact or enter a new person.'); return; }
   if (!person) return;
   if (!person.name) { toast('Person name is required'); return; }
   const conflicts = findAppointmentConflicts(getAppointments(date), { id, date, start_time: start, end_time: end });

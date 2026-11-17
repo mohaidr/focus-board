@@ -1407,6 +1407,7 @@ body {
 .rich-text-editor textarea:dir(rtl) { font-family: var(--font-arabic); line-height: 1.8; }
 .appointment-editor fieldset { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 18px; min-width: 0; }
 .appointment-editor legend { padding: 0 6px; }
+#appointmentContactSearch { margin-bottom: 8px; }
 .appointment-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .appointment-checkbox { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .appointment-checkbox input { width: auto; flex-shrink: 0; }

@@ -46,9 +46,15 @@ function setup() {
     persist: async () => { persisted++; if (failPersist) throw new Error('Storage full'); },
     requestChangeBackup: async reason => { backups.push(reason); return true; },
     db: {
-      exec(sql) {
+      exec(sql, params = []) {
         if (sql.includes('last_insert_rowid')) return [{ columns: ['id'], values: [[77]] }];
         if (sql.startsWith('SELECT id FROM sections')) return [{ columns: ['id'], values: [[1]] }];
+        if (sql.startsWith('SELECT * FROM contacts WHERE id')) return result(contacts.filter(row => row.id === params[0]));
+        if (sql.startsWith('SELECT id, name, phone, email FROM contacts')) {
+          return result(contacts.filter(row => [row.name, row.phone, row.email]
+            .some(value => value.toLowerCase().includes(params[0].toLowerCase())))
+            .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id).slice(0, 21));
+        }
         if (sql.startsWith('SELECT * FROM contacts')) return result(contacts);
         if (sql.startsWith('SELECT * FROM appointments')) return result(appointments);
         throw new Error('Unexpected query: ' + sql);
@@ -114,6 +120,66 @@ test('choosing a saved contact links it without creating a duplicate and resched
   assert.deepEqual(saved.params.slice(7, 10), ['2026-11-18', '13:15', '14:45']);
   assert.equal(saved.params.at(-1), 3);
   assert.deepEqual(backups, ['appointment-updated']);
+});
+
+test('contact picker loads bounded summaries and preserves an existing selection outside the first page', () => {
+  const { context, element, contacts } = setup();
+  for (let id = 100; id < 135; id++) {
+    contacts.push({ ...contact, id, name: 'Contact ' + id });
+  }
+  const queries = [];
+  const exec = context.db.exec;
+  context.db.exec = (sql, params) => { queries.push({ sql, params }); return exec(sql, params); };
+  context.getContacts = () => { throw new Error('Must not load all contacts for the picker'); };
+  element('appointmentContactSearch').value = 'old search';
+  context.openAppointmentModal(3);
+  assert.equal(element('appointmentContactSearch').value, '');
+  assert.equal((element('appointmentContact').innerHTML.match(/<option /g) || []).length, 22);
+  assert.equal(element('appointmentContact').value, '8');
+  assert.equal(element('appointmentNewPerson').disabled, true);
+  assert.match(element('appointmentContactHint').textContent, /first 20 matches/);
+  assert.match(queries[0].sql, /^SELECT id, name, phone, email FROM contacts[\s\S]*LIMIT 21$/);
+  assert.equal(queries.some(query => query.sql === 'SELECT * FROM contacts ORDER BY name COLLATE NOCASE, id'), false);
+
+  element('appointmentContactSearch').value = 'no match';
+  context.fillAppointmentContactOptions('8');
+  assert.equal((element('appointmentContact').innerHTML.match(/<option /g) || []).length, 2);
+  assert.equal(element('appointmentContact').value, '8');
+  assert.match(element('appointmentExistingContact').textContent, /Sam/);
+  assert.match(element('appointmentContactHint').textContent, /No saved contacts match/);
+  element('appointmentContact').value = '';
+  context.onAppointmentContactChange();
+  assert.equal(element('appointmentNewPerson').disabled, false);
+  assert.equal(element('appointmentPersonName').value, 'Sam');
+});
+
+test('contact picker searches name, phone and email and escapes matching contact labels', () => {
+  const { context, element, contacts } = setup();
+  contacts.push({ ...contact, id: 9, name: '<Different> 100%_', phone: '789', email: 'other@example.test' });
+  for (const term of [' sAM ', '123', 'SAM@EXAMPLE.TEST']) {
+    element('appointmentContactSearch').value = term;
+    context.fillAppointmentContactOptions();
+    assert.match(element('appointmentContact').innerHTML, /value="8"/);
+    assert.doesNotMatch(element('appointmentContact').innerHTML, /value="9"/);
+  }
+  element('appointmentContactSearch').value = '%_';
+  context.fillAppointmentContactOptions();
+  assert.match(element('appointmentContact').innerHTML, /&lt;Different&gt; 100%_/);
+  assert.doesNotMatch(element('appointmentContact').innerHTML, /value="8"/);
+  element('appointmentContactSearch').value = 'missing';
+  context.fillAppointmentContactOptions();
+  assert.equal((element('appointmentContact').innerHTML.match(/<option /g) || []).length, 1);
+  assert.match(element('appointmentContactHint').textContent, /No saved contacts match/);
+});
+
+test('saving a removed selected contact reports an error instead of silently abandoning the save', async () => {
+  const { context, element, contacts, statements, warnings, persisted } = setup();
+  contacts.length = 0;
+  element('appointmentContact').value = '8';
+  await context.saveAppointment({ preventDefault() {} });
+  assert.match(warnings[0], /Contact no longer exists/);
+  assert.equal(statements.length, 0);
+  assert.equal(persisted(), 0);
 });
 
 test('standalone contact creation persists without creating an appointment', async () => {
