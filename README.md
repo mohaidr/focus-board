@@ -120,8 +120,19 @@ One extra summary row detects whether another batch exists.
 Create a board with the **Appointments** type. Each board contains many
 appointments; contacts are shared across all appointment boards.
 
-- Pick a day from the month calendar or date picker. Use **Today** or the
-  previous/next-day buttons to navigate.
+- Pick a day from the month calendar or date picker, or use the previous/next-day
+  buttons. The navigation label shows **Today**, **Yesterday**, **Tomorrow**, or
+  the selected date. Away from today, use **Today** to jump back.
+- Open **Search appointments** to filter by person name, appointment title,
+  From date, To date, or any combination. Date endpoints are inclusive; use the
+  same From/To date for one day, or leave either endpoint empty for an open-ended
+  range. With no dates, search spans all dates rather than only the calendar day.
+  Search the current board by default or choose **All appointment boards**.
+  Sort by date/time, person name, or title in either direction, then choose
+  **Search**. Matching appointments load in ordered batches of 20 using
+  **Load 20 more**. Results show the date, person, and board; clicking one opens
+  its details without leaving the results. **Clear / daily view** or choosing
+  a calendar day returns to the daily schedule. Switching boards resets search.
 - Click an hour in the schedule or **+ Appointment**. Enter a title, date,
   start/end time, and person. Times use the device's local clock; appointments
   must end after they start on the same day.

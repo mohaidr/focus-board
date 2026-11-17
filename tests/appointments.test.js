@@ -363,6 +363,139 @@ test('contact search uses the existing styled search wrapper', () => {
   assert.match(element('mainBody').innerHTML, /No contacts found/);
 });
 
+const appointmentFilters = patch => ({ person: '', title: '', from: '', to: '',
+  scope: 'board', sort: 'date-asc', ...patch });
+
+test('appointment filters bind combined criteria and support board/all-board scope and open date ranges', () => {
+  const { context } = setup();
+  const filters = appointmentFilters({ person: " Sam %_' ", title: ' Planning ',
+    from: '2026-11-01', to: '2026-11-30' });
+  const query = context.appointmentFilterQuery(7, filters);
+  assert.deepEqual(clone(query.params), ["Sam %_'", 'Planning', 7, '2026-11-01', '2026-11-30']);
+  assert.match(query.sql, /COALESCE\(c.name, a.person_name\)/);
+  assert.match(query.sql, /a.section_id = \? AND a.date >= \? AND a.date <= \?/);
+  assert.doesNotMatch(query.sql, /Sam|Planning|2026-11/);
+  for (const dates of [{ from: '2026-11-17' }, { to: '2026-11-17' }, {}]) {
+    const all = context.appointmentFilterQuery(7, appointmentFilters({ scope: 'all', ...dates }));
+    assert.doesNotMatch(all.sql, /a.section_id = \?/);
+    assert.equal(all.sql.includes('a.date >= ?'), !!dates.from);
+    assert.equal(all.sql.includes('a.date <= ?'), !!dates.to);
+  }
+});
+
+test('appointment sorting is whitelisted, deterministic, and rejects invalid search ranges', () => {
+  const { context } = setup();
+  for (const sort of ['date-asc', 'date-desc', 'name-asc', 'name-desc', 'title-asc', 'title-desc']) {
+    const { order } = context.appointmentFilterQuery(1, appointmentFilters({ sort }));
+    assert.match(order, /a.id(?: ASC| DESC)?$/);
+    assert.match(order, sort.startsWith('date') ? /^a.date/ : sort.startsWith('name') ? /^COALESCE/ : /^a.title/);
+    assert.match(order, sort.endsWith('desc') ? /DESC/ : /ASC/);
+  }
+  for (const patch of [{ sort: '__proto__' }, { sort: 'a.id; DELETE FROM appointments' },
+    { scope: 'unknown' }, { from: '2026-02-30' }, { to: 'not-a-date' },
+    { from: '2026-11-18', to: '2026-11-17' }]) {
+    assert.throws(() => context.appointmentFilterQuery(1, appointmentFilters(patch)), /valid|From date/);
+  }
+  assert.equal(context.validateAppointmentFilters(appointmentFilters({
+    from: '2026-11-17', to: '2026-11-17' })), null);
+});
+
+test('appointment result pages reset on search and sorting changes, preserve invalid drafts, and return to daily view', () => {
+  const { context, element, warnings } = setup();
+  const rows = Array.from({ length: 45 }, (_, index) =>
+    [index + 1, '<Planning>', '2026-11-17', '09:00', '10:00', 'Sam', '<Work>']);
+  const batches = [];
+  context.db.exec = (sql, params = []) => {
+    if (sql === 'SELECT total_changes()') return [{ values: [[0]] }];
+    if (sql.startsWith('SELECT COUNT(*)')) return [{ values: [[45]] }];
+    if (sql.startsWith('SELECT a.id, a.title')) {
+      batches.push(clone(params.slice(-2)));
+      return [{ values: rows.slice(params.at(-1), params.at(-1) + params.at(-2)) }];
+    }
+    throw new Error('Unexpected query: ' + sql);
+  };
+  context.renderMain = () => context.renderAppointmentBoard(context.activeSectionId, 'Work', '#123456');
+  context.renderMain();
+  const apply = patch => {
+    const filters = appointmentFilters(patch);
+    for (const [suffix, field] of [['Person', 'person'], ['Title', 'title'], ['From', 'from'],
+      ['To', 'to'], ['Scope', 'scope'], ['Sort', 'sort']]) {
+      element('appointmentFilter' + suffix).value = filters[field];
+    }
+    context.applyAppointmentFilters({ preventDefault() {} });
+  };
+  apply({ person: 'Sam' });
+  assert.match(element('mainBody').innerHTML, /Showing 20 of 45 matching appointments/);
+  assert.match(element('mainBody').innerHTML, /openAppointmentDetails\(1\)/);
+  assert.match(element('mainBody').innerHTML, /&lt;Planning&gt;/);
+  assert.match(element('mainBody').innerHTML, /&lt;Work&gt;/);
+  assert.doesNotMatch(element('mainBody').innerHTML, /id="appointmentTimeline"/);
+  context.loadMorePage('appointment-filters', context.renderMain);
+  assert.match(element('mainBody').innerHTML, /Showing 40 of 45/);
+  assert.deepEqual(batches.at(-1), [21, 20]);
+  apply({ person: 'Sam', sort: 'name-desc' });
+  assert.match(element('mainBody').innerHTML, /Showing 20 of 45/);
+  assert.deepEqual(batches.at(-1), [21, 0]);
+  const before = element('mainBody').innerHTML;
+  apply({ from: '2026-11-18', to: '2026-11-17' });
+  assert.equal(element('mainBody').innerHTML, before);
+  assert.match(warnings.at(-1), /From date/);
+  context.setAppointmentDay('2026-11-17');
+  assert.match(element('mainBody').innerHTML, /id="appointmentTimeline"/);
+  apply({ scope: 'all' });
+  context.activeSectionId = 2;
+  context.renderMain();
+  assert.match(element('mainBody').innerHTML, /id="appointmentTimeline"/);
+  assert.match(element('mainBody').innerHTML, /value="board" selected/);
+});
+
+test('day arrows update the navigation label, selected date and query, including year boundaries', () => {
+  const { context, element, appointments } = setup();
+  context.Date = class extends Date {
+    constructor(...args) { super(...(args.length ? args : ['2026-11-17T12:00:00'])); }
+  };
+  vm.runInContext(app.match(/function dayKey\(date\) \{[\s\S]*?\n\}/)[0], context);
+  let queriedDay;
+  context.db.exec = (sql, params = []) => {
+    if (sql === 'SELECT total_changes()') return [{ values: [[0]] }];
+    const rows = appointments.filter(row => row.date === params[0]);
+    if (sql.startsWith('SELECT COUNT(*)')) return [{ values: [[rows.length]] }];
+    if (sql.startsWith('SELECT a.id, a.title')) {
+      queriedDay = params[0];
+      return [{ values: rows.map(row => [row.id, row.title, row.date,
+        row.start_time, row.end_time, row.person_name]) }];
+    }
+    throw new Error('Unexpected query: ' + sql);
+  };
+  context.renderMain = () => context.renderAppointmentBoard(1, 'Work', '#123456');
+  const check = (day, label) => {
+    const html = element('mainBody').innerHTML;
+    assert.equal(html.match(/id="appointmentDayLabel">([^<]+)</)[1], label);
+    assert.match(html, new RegExp('id="appointmentDayPicker" value="' + day + '"'));
+    assert.equal(queriedDay, day);
+    assert.equal(html.includes('onclick="setAppointmentDay(dayKey())"'), day !== '2026-11-17');
+  };
+  context.renderMain();
+  check('2026-11-17', 'Today');
+  assert.match(element('mainBody').innerHTML, /openAppointmentDetails\(3\)/);
+  context.moveAppointmentDay(-1);
+  check('2026-11-16', 'Yesterday');
+  assert.doesNotMatch(element('mainBody').innerHTML, /openAppointmentDetails\(3\)|No appointments today/);
+  context.moveAppointmentDay(1);
+  check('2026-11-17', 'Today');
+  context.moveAppointmentDay(1);
+  check('2026-11-18', 'Tomorrow');
+  context.moveAppointmentDay(1);
+  check('2026-11-19', new Date('2026-11-19T12:00:00').toLocaleDateString(undefined, { dateStyle: 'medium' }));
+  context.setAppointmentDay(context.dayKey());
+  check('2026-11-17', 'Today');
+  context.setAppointmentDay('2026-12-31');
+  context.moveAppointmentDay(1);
+  check('2027-01-01', new Date('2027-01-01T12:00:00').toLocaleDateString(undefined, { dateStyle: 'medium' }));
+  context.moveAppointmentDay(-1);
+  check('2026-12-31', new Date('2026-12-31T12:00:00').toLocaleDateString(undefined, { dateStyle: 'medium' }));
+});
+
 function calendarSetup() {
   const setupResult = setup();
   const { context } = setupResult;

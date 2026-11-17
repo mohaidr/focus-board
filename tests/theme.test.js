@@ -220,7 +220,7 @@ test('theme bootstrap and metadata precede styles, and the bootstrap is cached o
     assert.ok(position >= 0 && position < script);
   }
   assert.match(worker, /'\.\/js\/theme\.js'/);
-  assert.match(worker, /const CACHE_VERSION = 59;/);
+  assert.match(worker, /const CACHE_VERSION = 64;/);
 });
 
 test('local editor assets are revalidated on reload and still fall back to their offline cache', async () => {

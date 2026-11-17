@@ -5,6 +5,17 @@ let contactSearchTerm = '';
 let appointmentSavePending = false;
 let contactSavePending = false;
 let appointmentWritePending = false;
+let appointmentFilters = null;
+let appointmentFilterBoardId = null;
+
+const APPOINTMENT_FILTER_SORTS = {
+  'date-asc': ['Date / time: earliest first', 'a.date ASC, a.start_time ASC, a.end_time ASC, a.id ASC'],
+  'date-desc': ['Date / time: latest first', 'a.date DESC, a.start_time DESC, a.end_time DESC, a.id DESC'],
+  'name-asc': ['Person name: A to Z', 'COALESCE(c.name, a.person_name) COLLATE NOCASE ASC, a.date, a.start_time, a.end_time, a.id'],
+  'name-desc': ['Person name: Z to A', 'COALESCE(c.name, a.person_name) COLLATE NOCASE DESC, a.date, a.start_time, a.end_time, a.id'],
+  'title-asc': ['Title: A to Z', 'a.title COLLATE NOCASE ASC, a.date, a.start_time, a.end_time, a.id'],
+  'title-desc': ['Title: Z to A', 'a.title COLLATE NOCASE DESC, a.date, a.start_time, a.end_time, a.id'],
+};
 
 const CONTACT_COLUMNS = ['id', 'name', 'phone', 'email', 'notes'];
 const APPOINTMENT_COLUMNS = ['id', 'section_id', 'contact_id', 'person_name', 'person_phone',
@@ -37,6 +48,16 @@ function appointmentMinutes(time) {
 function appointmentDateLabel(date) {
   return new Date(date + 'T12:00:00').toLocaleDateString(undefined,
     { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function appointmentNavigationLabel(value) {
+  const today = dayKey();
+  for (const [offset, label] of [[0, 'Today'], [-1, 'Yesterday'], [1, 'Tomorrow']]) {
+    const date = new Date(today + 'T12:00:00');
+    date.setDate(date.getDate() + offset);
+    if (dayKey(date) === value) return label;
+  }
+  return new Date(value + 'T12:00:00').toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
 function getContact(id) {
@@ -74,9 +95,112 @@ function appointmentSearchWhere() {
     a.location || char(10) || s.name || char(10) || a.date, ?)`;
 }
 
-function renderAppointmentSearchMatches(appointments) {
+function validateAppointmentFilters(filters) {
+  if (!['board', 'all'].includes(filters.scope) || !Object.hasOwn(APPOINTMENT_FILTER_SORTS, filters.sort)) {
+    return 'Choose a valid search scope and sort order.';
+  }
+  if ((filters.from && !validAppointmentDate(filters.from)) || (filters.to && !validAppointmentDate(filters.to))) {
+    return 'Choose valid dates for the appointment search.';
+  }
+  if (filters.from && filters.to && filters.from > filters.to) {
+    return 'The From date must be on or before the To date.';
+  }
+  return null;
+}
+
+function appointmentFilterQuery(boardId, filters) {
+  const error = validateAppointmentFilters(filters);
+  if (error) throw new Error(error);
+  const clauses = ['text_matches(COALESCE(c.name, a.person_name), ?)', 'text_matches(a.title, ?)'];
+  const params = [filters.person.trim(), filters.title.trim()];
+  if (filters.scope === 'board') { clauses.push('a.section_id = ?'); params.push(boardId); }
+  if (filters.from) { clauses.push('a.date >= ?'); params.push(filters.from); }
+  if (filters.to) { clauses.push('a.date <= ?'); params.push(filters.to); }
+  return {
+    sql: `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
+      COALESCE(c.name, a.person_name) AS person_name, s.name AS board_name
+      ${appointmentSearchFrom()} WHERE ${clauses.join(' AND ')}`,
+    params,
+    order: APPOINTMENT_FILTER_SORTS[filters.sort][1],
+  };
+}
+
+function applyAppointmentFilters(event) {
+  event.preventDefault();
+  if (!document.getElementById('appointmentFilterForm').reportValidity()) return;
+  const value = id => document.getElementById(id).value.trim();
+  const filters = { person: value('appointmentFilterPerson'), title: value('appointmentFilterTitle'),
+    from: value('appointmentFilterFrom'), to: value('appointmentFilterTo'),
+    scope: value('appointmentFilterScope'), sort: value('appointmentFilterSort') };
+  const error = validateAppointmentFilters(filters);
+  if (error) { toast(error); return; }
+  appointmentFilters = filters;
+  resetListPage('appointment-filters');
+  renderMain();
+}
+
+function clearAppointmentFilters() {
+  appointmentFilters = null;
+  resetListPage('appointment-filters');
+  renderMain();
+}
+
+function renderAppointmentFilterControls() {
+  const filters = appointmentFilters || { person: '', title: '', from: '', to: '', scope: 'board', sort: 'date-asc' };
+  return `<details class="appointment-search-panel" ${appointmentFilters ? 'open' : ''}>
+    <summary>Search appointments</summary>
+    <form id="appointmentFilterForm" onsubmit="applyAppointmentFilters(event)">
+      <div class="appointment-filter-grid">
+        <label for="appointmentFilterPerson">Person name
+          <input class="search-box" type="search" dir="auto" id="appointmentFilterPerson"
+            placeholder="Search by person name" value="${escAttr(filters.person)}">
+        </label>
+        <label for="appointmentFilterTitle">Appointment title
+          <input class="search-box" type="search" dir="auto" id="appointmentFilterTitle"
+            placeholder="Search by title" value="${escAttr(filters.title)}">
+        </label>
+        <label for="appointmentFilterFrom">From date
+          <input class="search-box" type="date" id="appointmentFilterFrom" value="${escAttr(filters.from)}">
+        </label>
+        <label for="appointmentFilterTo">To date
+          <input class="search-box" type="date" id="appointmentFilterTo" value="${escAttr(filters.to)}">
+        </label>
+        <label for="appointmentFilterScope">Search in
+          <select class="form-select" id="appointmentFilterScope">
+            <option value="board" ${filters.scope === 'board' ? 'selected' : ''}>Current board</option>
+            <option value="all" ${filters.scope === 'all' ? 'selected' : ''}>All appointment boards</option>
+          </select>
+        </label>
+        <label for="appointmentFilterSort">Sort results
+          <select class="form-select" id="appointmentFilterSort">${Object.entries(APPOINTMENT_FILTER_SORTS)
+    .map(([value, [label]]) => `<option value="${value}" ${filters.sort === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
+        </label>
+      </div>
+      <p class="appointment-hint">Use any filters together. Dates include both endpoints; use the same From and To date for one day. Leave dates empty to search across all dates.</p>
+      <div class="appointment-filter-actions">
+        <button class="btn btn-primary" type="submit">Search</button>
+        <button class="btn btn-ghost" type="button" onclick="clearAppointmentFilters()">Clear / daily view</button>
+      </div>
+    </form>
+  </details>`;
+}
+
+function renderFilteredAppointments(boardId) {
+  const query = appointmentFilterQuery(boardId, appointmentFilters);
+  const page = readListPage('appointment-filters', query.sql + ' ORDER BY ' + query.order, query.params);
+  const appointments = readListObjects(page, ['id', 'title', 'date', 'start_time', 'end_time', 'person_name', 'board_name']);
+  const total = db.exec('SELECT COUNT(*) FROM (' + query.sql + ')', query.params)[0].values[0][0];
+  return `<h3>Appointment search results</h3>
+    <p class="appointment-hint" role="status">Showing ${appointments.length} of ${total} matching appointment${total === 1 ? '' : 's'}.</p>
+    <div class="appointment-agenda" aria-label="Appointment search results">
+      ${appointments.length ? renderAppointmentSearchMatches(appointments, false)
+    : '<p class="appointment-hint">No appointments match these filters. Try changing the name, title, or dates.</p>'}
+    </div>${renderLoadMore(page, 'renderMain()')}`;
+}
+
+function renderAppointmentSearchMatches(appointments, navigate = true) {
   return appointments.map(appointment => `<button type="button" class="appointment-agenda-entry"
-    onclick="navigateToAppointment(${appointment.id})">
+    onclick="${navigate ? 'navigateToAppointment' : 'openAppointmentDetails'}(${appointment.id})">
     <span>${esc(appointment.date)} ${esc(appointment.start_time)} - ${esc(appointment.end_time)}</span>
     <strong dir="auto">${esc(appointment.title)}</strong><span dir="auto">${esc(appointment.person_name)}</span>
     <span dir="auto">${esc(appointment.board_name)}</span></button>`).join('');
@@ -148,6 +272,8 @@ function setAppointmentDay(value) {
   if (!validAppointmentDate(value)) { toast('Choose a valid date'); return; }
   appointmentDay = value;
   appointmentMonth = value.slice(0, 7);
+  appointmentFilters = null;
+  resetListPage('appointment-filters');
   renderMain();
 }
 
@@ -189,17 +315,7 @@ function renderAppointmentCalendar() {
       onchange="setAppointmentDay(this.value)"></section>`;
 }
 
-function renderAppointmentBoard(id, name, color) {
-  if (!appointmentDay) appointmentDay = dayKey();
-  if (!appointmentMonth) appointmentMonth = appointmentDay.slice(0, 7);
-  const sql = `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
-    COALESCE(c.name, a.person_name) FROM appointments a LEFT JOIN contacts c ON c.id = a.contact_id
-    WHERE a.date = ? AND a.section_id = ?`;
-  const params = [appointmentDay, id];
-  const page = readListPage('appointment-day', sql + ' ORDER BY a.start_time, a.end_time, a.id', params);
-  const visibleRows = withSavedListRow('appointment', page.rows, sql, params, 'a.id');
-  const appointments = readListObjects({ rows: visibleRows }, ['id', 'title', 'date', 'start_time', 'end_time', 'person_name']);
-  const total = db.exec('SELECT COUNT(*) FROM appointments WHERE date = ? AND section_id = ?', [appointmentDay, id])[0].values[0][0];
+function renderAppointmentBoardHeader(id, name, color) {
   document.getElementById('mainHeader').innerHTML = `
     <div class="main-header-left">
       <button class="sidebar-toggle" type="button" aria-label="Open navigation menu" onclick="toggleSidebar()">&#9776;</button>
@@ -208,6 +324,39 @@ function renderAppointmentBoard(id, name, color) {
       <button class="btn btn-ghost btn-sm" onclick="openSectionModal(${id})">Edit Board</button>
       <button class="btn btn-ghost btn-sm" onclick="deleteSection(${id})">Delete Board</button>
     </div>`;
+}
+
+function renderAppointmentBoardContent(content) {
+  document.getElementById('mainBody').innerHTML = `<div class="appointment-layout">
+    <aside>${renderAppointmentCalendar()}
+      <button class="btn btn-ghost btn-block" onclick="selectContactsTab()">Manage contacts</button>
+    </aside>
+    <section class="appointment-day" aria-label="${appointmentFilters ? 'Appointment search' : 'Daily schedule'}">
+      ${renderAppointmentFilterControls()}${content}
+    </section></div>`;
+}
+
+function renderAppointmentBoard(id, name, color) {
+  if (!appointmentDay) appointmentDay = dayKey();
+  if (!appointmentMonth) appointmentMonth = appointmentDay.slice(0, 7);
+  if (appointmentFilterBoardId !== id) {
+    appointmentFilterBoardId = id;
+    appointmentFilters = null;
+    resetListPage('appointment-filters');
+  }
+  renderAppointmentBoardHeader(id, name, color);
+  if (appointmentFilters) {
+    renderAppointmentBoardContent(renderFilteredAppointments(id));
+    return;
+  }
+  const sql = `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
+    COALESCE(c.name, a.person_name) FROM appointments a LEFT JOIN contacts c ON c.id = a.contact_id
+    WHERE a.date = ? AND a.section_id = ?`;
+  const params = [appointmentDay, id];
+  const page = readListPage('appointment-day', sql + ' ORDER BY a.start_time, a.end_time, a.id', params);
+  const visibleRows = withSavedListRow('appointment', page.rows, sql, params, 'a.id');
+  const appointments = readListObjects({ rows: visibleRows }, ['id', 'title', 'date', 'start_time', 'end_time', 'person_name']);
+  const total = db.exec('SELECT COUNT(*) FROM appointments WHERE date = ? AND section_id = ?', [appointmentDay, id])[0].values[0][0];
   let hours = '';
   for (let hour = 0; hour < 24; hour++) {
     const time = String(hour).padStart(2, '0') + ':00';
@@ -221,15 +370,13 @@ function renderAppointmentBoard(id, name, color) {
       <strong dir="auto">${esc(appointment.title)}</strong>
       <span dir="auto">${esc(appointment.person_name)} &middot; ${appointment.start_time} - ${appointment.end_time}</span>
     </button>`).join('');
-  document.getElementById('mainBody').innerHTML = `<div class="appointment-layout">
-    <aside>${renderAppointmentCalendar()}
-      <button class="btn btn-ghost btn-block" onclick="selectContactsTab()">Manage contacts</button>
-    </aside>
-    <section class="appointment-day" aria-label="Daily schedule">
-      <div class="appointment-toolbar">
-        <button class="btn btn-ghost btn-sm" aria-label="Previous day" onclick="moveAppointmentDay(-1)">&lt;</button>
-        <button class="btn btn-ghost btn-sm" onclick="setAppointmentDay(dayKey())">Today</button>
-        <button class="btn btn-ghost btn-sm" aria-label="Next day" onclick="moveAppointmentDay(1)">&gt;</button>
+  renderAppointmentBoardContent(`<div class="appointment-toolbar">
+        <div class="appointment-day-navigation">
+          <button class="btn btn-ghost btn-sm" aria-label="Previous day" onclick="moveAppointmentDay(-1)">&lt;</button>
+          <span id="appointmentDayLabel">${esc(appointmentNavigationLabel(appointmentDay))}</span>
+          <button class="btn btn-ghost btn-sm" aria-label="Next day" onclick="moveAppointmentDay(1)">&gt;</button>
+          ${appointmentDay !== dayKey() ? '<button class="btn btn-ghost btn-sm" onclick="setAppointmentDay(dayKey())">Today</button>' : ''}
+        </div>
         <button class="btn btn-primary btn-sm" onclick="openAppointmentModal()">+ Appointment</button>
       </div>
       <h3>${esc(appointmentDateLabel(appointmentDay))}</h3>
@@ -238,11 +385,11 @@ function renderAppointmentBoard(id, name, color) {
         ${appointments.length ? appointments.map(appointment => `<button type="button" class="appointment-agenda-entry"
           onclick="openAppointmentDetails(${appointment.id})"><span>${appointment.start_time} - ${appointment.end_time}</span>
           <strong dir="auto">${esc(appointment.title)}</strong><span dir="auto">${esc(appointment.person_name)}</span></button>`).join('')
-    : '<p class="appointment-hint">No appointments today. Choose a time below to add one.</p>'}
+    : '<p class="appointment-hint">No appointments on this day. Choose a time below to add one.</p>'}
       </div>
       ${renderLoadMore(page, 'renderMain()')}
       <div class="appointment-timeline-scroll" id="appointmentTimeline"><div class="appointment-timeline">${hours}${cards}</div></div>
-    </section></div>`;
+    `);
   document.getElementById('appointmentTimeline').scrollTop =
     Math.max(0, (appointments.length ? appointmentMinutes(appointments[0].start_time) / 60 - 1 : 8) * 64);
 }
