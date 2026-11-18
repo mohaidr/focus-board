@@ -7,6 +7,7 @@ const { webcrypto } = require('node:crypto');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
 const appointmentsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js'), 'utf8');
+const recurrenceSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointment-recurrence.js'), 'utf8');
 const markdownSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const date = '2026-11-08T12:00:00.000Z';
@@ -99,7 +100,8 @@ function appointmentDataSetup({ accepted = true, failPersist = false } = {}) {
     appointments: [{ id: 3, section_id: 1, contact_id: 8, person_name: 'Sam', person_phone: '123',
       person_email: 'sam@example.test', person_notes: 'Contact notes', title: 'Planning',
       date: '2026-11-17', start_time: '09:00', end_time: '10:00', description: 'Exact\nappointment details', location: 'Office',
-      description_format: 'plain', description_direction: 'auto', person_notes_format: 'plain', person_notes_direction: 'auto' }],
+      description_format: 'plain', description_direction: 'auto', person_notes_format: 'plain', person_notes_direction: 'auto',
+      recurrence: '', recurrence_parent: null, original_date: '', cancelled: 0, reminder_minutes: 15 }],
   };
   const elements = new Map();
   const element = id => {
@@ -153,6 +155,7 @@ function appointmentDataSetup({ accepted = true, failPersist = false } = {}) {
     return requestBackup(reason);
   };
   vm.runInContext(markdownSource, context);
+  vm.runInContext(recurrenceSource, context);
   vm.runInContext(appointmentsSource, context);
   vm.runInContext(app.slice(app.indexOf('async function saveSection('), app.indexOf('function onItemProtectionChange(')), context);
   return { ...base, tables, element };

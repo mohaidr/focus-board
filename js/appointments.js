@@ -22,7 +22,7 @@ const APPOINTMENT_COLUMNS = ['id', 'section_id', 'contact_id', 'person_name', 'p
   'person_email', 'person_notes', 'title', 'date', 'start_time', 'end_time', 'description', 'location'];
 const CONTACT_TEXT_METADATA = { notes_format: 'plain', notes_direction: 'auto' };
 const APPOINTMENT_TEXT_METADATA = { description_format: 'plain', description_direction: 'auto',
-  person_notes_format: 'plain', person_notes_direction: 'auto' };
+  person_notes_format: 'plain', person_notes_direction: 'auto', ...APPOINTMENT_RECURRENCE_METADATA };
 
 function appointmentRows(sql, params = []) {
   const result = db.exec(sql, params);
@@ -68,13 +68,15 @@ function getAppointments(date = null, sectionId = null, candidate = null) {
   return appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
     c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
     c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
-    FROM appointments a JOIN sections s ON s.id = a.section_id
+    FROM ${appointmentOccurrenceSource(date || '', date || '')} a JOIN sections s ON s.id = a.section_id
     LEFT JOIN contacts c ON c.id = a.contact_id
     WHERE 1 = 1 ${date === null ? '' : 'AND a.date = ?'} ${sectionId === null ? '' : 'AND a.section_id = ?'}
     ${candidate ? 'AND a.start_time < ? AND a.end_time > ? AND (? IS NULL OR a.id != ?)' : ''}
+    ${candidate?.ignoreSeries ? 'AND (a.recurrence_parent IS NULL OR a.recurrence_parent != ? OR a.original_date < ?)' : ''}
     ORDER BY a.date, a.start_time, a.end_time, a.id LIMIT 21`,
   [...(date === null ? [] : [date]), ...(sectionId === null ? [] : [sectionId]),
-    ...(candidate ? [candidate.end_time, candidate.start_time, candidate.id, candidate.id] : [])]).map(hydrateAppointmentContact);
+    ...(candidate ? [candidate.end_time, candidate.start_time, candidate.id, candidate.id] : []),
+    ...(candidate?.ignoreSeries ? [candidate.ignoreSeries, candidate.ignoreFrom] : [])]).map(hydrateAppointmentContact);
 }
 
 function searchAppointments(term) {
@@ -83,8 +85,8 @@ function searchAppointments(term) {
   return page.rows.map(([id]) => getAppointment(id));
 }
 
-function appointmentSearchFrom() {
-  return `FROM appointments a JOIN sections s ON s.id = a.section_id
+function appointmentSearchFrom(from = '', to = '') {
+  return `FROM ${appointmentOccurrenceSource(from, to)} a JOIN sections s ON s.id = a.section_id
     LEFT JOIN contacts c ON c.id = a.contact_id`;
 }
 
@@ -119,7 +121,7 @@ function appointmentFilterQuery(boardId, filters) {
   return {
     sql: `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
       COALESCE(c.name, a.person_name) AS person_name, s.name AS board_name
-      ${appointmentSearchFrom()} WHERE ${clauses.join(' AND ')}`,
+      ${appointmentSearchFrom(filters.from, filters.to)} WHERE ${clauses.join(' AND ')}`,
     params,
     order: APPOINTMENT_FILTER_SORTS[filters.sort][1],
   };
@@ -176,7 +178,7 @@ function renderAppointmentFilterControls() {
     .map(([value, [label]]) => `<option value="${value}" ${filters.sort === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
         </label>
       </div>
-      <p class="appointment-hint">Use any filters together. Dates include both endpoints; use the same From and To date for one day. Leave dates empty to search across all dates.</p>
+      <p class="appointment-hint">Combine any filters. Dates are inclusive. Recurring results use the chosen date range; with one date, a 12-month window from or up to it; with no dates, the next 12 months. Non-recurring appointments search across all dates.</p>
       <div class="appointment-filter-actions">
         <button class="btn btn-primary" type="submit">Search</button>
         <button class="btn btn-ghost" type="button" onclick="clearAppointmentFilters()">Clear / daily view</button>
@@ -200,7 +202,7 @@ function renderFilteredAppointments(boardId) {
 
 function renderAppointmentSearchMatches(appointments, navigate = true) {
   return appointments.map(appointment => `<button type="button" class="appointment-agenda-entry"
-    onclick="${navigate ? 'navigateToAppointment' : 'openAppointmentDetails'}(${appointment.id})">
+    onclick="${navigate ? 'navigateToAppointment' : 'openAppointmentDetails'}(${appointmentActionId(appointment.id)})">
     <span>${esc(appointment.date)} ${esc(appointment.start_time)} - ${esc(appointment.end_time)}</span>
     <strong dir="auto">${esc(appointment.title)}</strong><span dir="auto">${esc(appointment.person_name)}</span>
     <span dir="auto">${esc(appointment.board_name)}</span></button>`).join('');
@@ -227,6 +229,14 @@ function hydrateAppointmentContact(appointment) {
 }
 
 function getAppointment(id) {
+  if (typeof id === 'string' && /^\d+:\d{4}-\d{2}-\d{2}$/.test(id)) {
+    const date = id.split(':')[1];
+    const row = appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
+      c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
+      c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
+      ${appointmentSearchFrom(date, date)} WHERE a.id = ?`, [id])[0];
+    return row ? hydrateAppointmentContact(row) : null;
+  }
   const row = appointmentRows(`SELECT a.*, s.name AS board_name, c.name AS contact_name,
     c.phone AS contact_phone, c.email AS contact_email, c.notes AS contact_notes,
     c.notes_format AS contact_notes_format, c.notes_direction AS contact_notes_direction
@@ -349,14 +359,15 @@ function renderAppointmentBoard(id, name, color) {
     renderAppointmentBoardContent(renderFilteredAppointments(id));
     return;
   }
+  const source = appointmentOccurrenceSource(appointmentDay, appointmentDay);
   const sql = `SELECT a.id, a.title, a.date, a.start_time, a.end_time,
-    COALESCE(c.name, a.person_name) FROM appointments a LEFT JOIN contacts c ON c.id = a.contact_id
+    COALESCE(c.name, a.person_name) FROM ${source} a LEFT JOIN contacts c ON c.id = a.contact_id
     WHERE a.date = ? AND a.section_id = ?`;
   const params = [appointmentDay, id];
   const page = readListPage('appointment-day', sql + ' ORDER BY a.start_time, a.end_time, a.id', params);
   const visibleRows = withSavedListRow('appointment', page.rows, sql, params, 'a.id');
   const appointments = readListObjects({ rows: visibleRows }, ['id', 'title', 'date', 'start_time', 'end_time', 'person_name']);
-  const total = db.exec('SELECT COUNT(*) FROM appointments WHERE date = ? AND section_id = ?', [appointmentDay, id])[0].values[0][0];
+  const total = db.exec(`SELECT COUNT(*) FROM ${source} WHERE date = ? AND section_id = ?`, [appointmentDay, id])[0].values[0][0];
   let hours = '';
   for (let hour = 0; hour < 24; hour++) {
     const time = String(hour).padStart(2, '0') + ':00';
@@ -364,7 +375,7 @@ function renderAppointmentBoard(id, name, color) {
       aria-label="Add appointment at ${time}" onclick="openAppointmentModal(null, '${time}')"><span>${time}</span></button>`;
   }
   const cards = layoutAppointments(appointments).map(appointment => `
-    <button type="button" class="appointment-card" onclick="openAppointmentDetails(${appointment.id})"
+    <button type="button" class="appointment-card" onclick="openAppointmentDetails(${appointmentActionId(appointment.id)})"
       style="top:${appointment.start / 60 * 64}px;height:${(appointment.end - appointment.start) / 60 * 64}px;left:calc(64px + (100% - 64px) * ${appointment.lane / appointment.lanes});width:calc((100% - 64px) / ${appointment.lanes} - 4px)"
       aria-label="${escAttr(`${appointment.start_time} to ${appointment.end_time}, ${appointment.title}, ${appointment.person_name}`)}">
       <strong dir="auto">${esc(appointment.title)}</strong>
@@ -383,7 +394,7 @@ function renderAppointmentBoard(id, name, color) {
       <p class="appointment-hint">Showing ${appointments.length} of ${total} appointment${total === 1 ? '' : 's'} &middot; Times are local to this device. Click an hour to book.</p>
       <div class="appointment-agenda" aria-label="Appointments for selected day">
         ${appointments.length ? appointments.map(appointment => `<button type="button" class="appointment-agenda-entry"
-          onclick="openAppointmentDetails(${appointment.id})"><span>${appointment.start_time} - ${appointment.end_time}</span>
+          onclick="openAppointmentDetails(${appointmentActionId(appointment.id)})"><span>${appointment.start_time} - ${appointment.end_time}</span>
           <strong dir="auto">${esc(appointment.title)}</strong><span dir="auto">${esc(appointment.person_name)}</span></button>`).join('')
     : '<p class="appointment-hint">No appointments on this day. Choose a time below to add one.</p>'}
       </div>
@@ -454,6 +465,7 @@ function ensureAppointmentModals() {
           <div class="form-group"><label for="appointmentStart">Start time *</label><input id="appointmentStart" type="time" required></div>
           <div class="form-group"><label for="appointmentEnd">End time *</label><input id="appointmentEnd" type="time" required></div>
         </div>
+        ${renderAppointmentRepeatControls()}
         <div class="form-group"><label for="appointmentContact">Person *</label>
           <input id="appointmentContactSearch" type="search" dir="auto" aria-label="Search saved contacts"
             aria-describedby="appointmentContactHint" placeholder="Search contacts by name, phone, or email"
@@ -558,6 +570,7 @@ function openAppointmentModal(id = null, start = '09:00') {
   setRichTextEditor('appointmentDescription', appointment ? appointment.description : '',
     appointment?.description_format || 'plain', appointment?.description_direction || 'auto');
   document.getElementById('appointmentLocation').value = appointment ? appointment.location : '';
+  fillAppointmentRepeatControls(appointment);
   fillPersonFields('appointmentPerson', appointment ? { name: appointment.person_name,
     phone: appointment.person_phone, email: appointment.person_email, notes: appointment.person_notes,
     notes_format: appointment.person_notes_format, notes_direction: appointment.person_notes_direction } : {});
@@ -612,7 +625,9 @@ async function saveAppointment(event) {
   if (richTextImagePastes.size) { toast('Please wait for the image paste to finish'); return; }
   if (appointmentSavePending || !document.getElementById('appointmentForm').reportValidity()) return;
   const value = id => document.getElementById(id).value.trim();
-  const id = Number(value('appointmentId')) || null;
+  const rawId = value('appointmentId');
+  const id = rawId.includes(':') ? rawId : Number(rawId) || null;
+  const existing = id ? getAppointment(id) : null;
   const sectionId = Number(value('appointmentSection'));
   const date = value('appointmentDate');
   const start = value('appointmentStart');
@@ -625,6 +640,9 @@ async function saveAppointment(event) {
     return;
   }
   if (!title) { toast('Appointment title is required'); return; }
+  let repeat;
+  try { repeat = readAppointmentRepeatControls(date); }
+  catch (error) { toast(error.message); return; }
   const board = appointmentRows("SELECT id FROM sections WHERE id = ? AND type = 'appointment'", [sectionId])[0];
   if (!board || (id && !getAppointment(id))) { toast('Appointment or board no longer exists'); return; }
   let contactId = Number(value('appointmentContact')) || null;
@@ -633,15 +651,35 @@ async function saveAppointment(event) {
   if (!person) return;
   if (!person.name) { toast('Person name is required'); return; }
   const candidate = { id, date, start_time: start, end_time: end };
-  const conflicts = findAppointmentConflicts(getAppointments(date, null, candidate), candidate);
+  if (appointmentEditContext && appointmentEditContext.scope !== 'occurrence') {
+    candidate.ignoreSeries = appointmentEditContext.master.id;
+    candidate.ignoreFrom = appointmentEditContext.scope === 'series'
+      ? appointmentEditContext.master.date : appointmentEditContext.original;
+  }
+  const conflicts = findAppointmentWriteConflicts(candidate, repeat);
   if (conflicts.length && !confirm('This overlaps with:\n' + conflicts.map(other =>
-    `${other.start_time} - ${other.end_time}: ${other.title} (${other.board_name})`).join('\n') +
+    `${other.date} ${other.start_time} - ${other.end_time}: ${other.title} (${other.board_name})`).join('\n') +
     (conflicts.length === 21 ? '\nAdditional overlapping appointments may exist.' : '') + '\n\nSave anyway?')) return;
   appointmentSavePending = true;
   document.getElementById('appointmentSaveButton').disabled = true;
   let savedId = id;
   try {
     const saved = await writeAppointmentChange(() => {
+      const series = existing ? appointmentSeriesInfo(existing) : null;
+      const scope = appointmentEditContext?.scope || 'occurrence';
+      let updateId = typeof id === 'number' ? id : null;
+      if (series && scope !== 'occurrence') {
+        if (scope === 'future') {
+          truncateAppointmentSeries(series.master, series.original);
+          updateId = null;
+        } else {
+          db.run('DELETE FROM appointments WHERE recurrence_parent = ?', [series.master.id]);
+          updateId = series.master.id;
+        }
+      } else if (series) {
+        db.run('DELETE FROM appointments WHERE recurrence_parent = ? AND original_date = ?', [series.master.id, series.original]);
+        updateId = null;
+      }
       if (!contactId && document.getElementById('appointmentSaveContact').checked) {
         db.run('INSERT INTO contacts (name, phone, email, notes, notes_format, notes_direction) VALUES (?, ?, ?, ?, ?, ?)',
           [person.name, person.phone, person.email, person.notes, person.notes_format || 'plain', person.notes_direction || 'auto']);
@@ -650,11 +688,12 @@ async function saveAppointment(event) {
       const params = [sectionId, contactId, person.name, person.phone, person.email, person.notes,
         title, date, start, end, description.source, value('appointmentLocation'),
         description.format, description.direction, person.notes_format || 'plain', person.notes_direction || 'auto'];
-      if (id) {
+      if (updateId) {
         db.run(`UPDATE appointments SET section_id = ?, contact_id = ?, person_name = ?, person_phone = ?,
           person_email = ?, person_notes = ?, title = ?, date = ?, start_time = ?, end_time = ?, description = ?, location = ?,
           description_format = ?, description_direction = ?, person_notes_format = ?, person_notes_direction = ?
-          WHERE id = ?`, [...params, id]);
+          WHERE id = ?`, [...params, updateId]);
+        savedId = updateId;
       } else {
         db.run(`INSERT INTO appointments (section_id, contact_id, person_name, person_phone, person_email,
           person_notes, title, date, start_time, end_time, description, location,
@@ -662,14 +701,16 @@ async function saveAppointment(event) {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, params);
         savedId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
       }
+      writeAppointmentRecurrence(savedId, repeat, series);
     }, id ? 'appointment-updated' : 'appointment-created');
     if (!saved) return;
     rememberListRecord('appointment', savedId);
-    appointmentDay = date;
-    appointmentMonth = date.slice(0, 7);
+    appointmentDay = repeat.recurrence ? firstAppointmentOccurrence(readAppointmentRecurrence(repeat.recurrence)) : date;
+    appointmentMonth = appointmentDay.slice(0, 7);
     closeModal('appointmentModal');
     renderSidebar();
     renderMain();
+    checkDueDateNotifications();
     toast(id ? 'Appointment updated' : 'Appointment created');
   } finally {
     appointmentSavePending = false;
@@ -681,9 +722,13 @@ function openAppointmentDetails(id) {
   ensureAppointmentModals();
   const appointment = getAppointment(id);
   if (!appointment) { toast('Appointment no longer exists'); return; }
+  const series = appointmentSeriesInfo(appointment);
   document.getElementById('appointmentDetails').innerHTML = `
     <h2 id="appointmentDetailsTitle" dir="auto">${esc(appointment.title)}</h2>
     <p>${esc(appointmentDateLabel(appointment.date))}<br>${appointment.start_time} - ${appointment.end_time}</p>
+    ${series ? `<p class="appointment-hint">Recurring appointment &middot; ${esc(appointmentRecurrenceLabel(series))}</p>` : ''}
+    <p class="appointment-hint">Reminder: ${appointment.reminder_minutes === -1 ? 'Off' :
+      appointment.reminder_minutes === 0 ? 'At start' : `${appointment.reminder_minutes ?? 15} minutes before, and at start`}</p>
     <p class="appointment-hint" dir="auto">${esc(appointment.board_name)}</p>
     <h3>Person</h3><div class="appointment-detail-text" dir="auto">${esc(appointment.person_name)}</div>
     ${[appointment.person_phone, appointment.person_email].filter(Boolean)
@@ -695,9 +740,9 @@ function openAppointmentDetails(id) {
     ${appointment.location ? `<h3>Location / meeting link</h3><div class="appointment-detail-text" dir="auto">${esc(appointment.location)}</div>` : ''}
     <div class="modal-actions appointment-toolbar">
       <button class="btn btn-ghost" onclick="closeModal('appointmentDetailsModal')">Close</button>
-      <button class="btn btn-ghost" onclick="deleteAppointment(${id})">Delete</button>
-      <button class="btn btn-ghost" onclick="addAppointmentToCalendar(event, ${id})">&#128197; Add to Calendar</button>
-      <button class="btn btn-primary" onclick="openAppointmentModal(${id})">Edit / reschedule</button>
+      <button class="btn btn-ghost" onclick="openAppointmentDeleteOptions(${appointmentActionId(id)})">Delete</button>
+      <button class="btn btn-ghost" onclick="addAppointmentToCalendar(event, ${appointmentActionId(id)})">&#128197; Add to Calendar</button>
+      <button class="btn btn-primary" onclick="openAppointmentModal(${appointmentActionId(id)})">Edit / reschedule</button>
     </div>`;
   document.getElementById('appointmentDetailsModal').classList.add('active');
   document.querySelector('#appointmentDetails button').focus();
@@ -715,15 +760,33 @@ function addAppointmentToCalendar(event, id) {
     start: new Date(`${appointment.date}T${appointment.start_time}:00`),
     end: new Date(`${appointment.date}T${appointment.end_time}:00`),
     location: appointment.location,
+    reminderMinutes: appointment.reminder_minutes ?? 15,
   });
 }
 
-async function deleteAppointment(id) {
+async function deleteAppointment(id, scope = 'occurrence') {
+  const appointment = getAppointment(id);
+  if (!appointment) { toast('Appointment no longer exists'); return; }
+  if (!['occurrence', 'future', 'series'].includes(scope)) { toast('Choose a valid delete scope'); return; }
+  const series = appointmentSeriesInfo(appointment);
   if (!confirm('Delete this appointment? The saved contact will be kept.')) return;
-  if (!await writeAppointmentChange(() => db.run('DELETE FROM appointments WHERE id = ?', [id]), 'appointment-deleted')) return;
+  if (!await writeAppointmentChange(() => {
+    if (!series) db.run('DELETE FROM appointments WHERE id = ?', [id]);
+    else if (scope === 'series') db.run('DELETE FROM appointments WHERE id = ? OR recurrence_parent = ?', [series.master.id, series.master.id]);
+    else if (scope === 'future') truncateAppointmentSeries(series.master, series.original);
+    else {
+      db.run('DELETE FROM appointments WHERE recurrence_parent = ? AND original_date = ?', [series.master.id, series.original]);
+      const columns = [...APPOINTMENT_COLUMNS, ...Object.keys(APPOINTMENT_TEXT_METADATA)].filter(column => column !== 'id');
+      const cancelled = { ...series.master, recurrence: '', recurrence_parent: series.master.id,
+        original_date: series.original, date: series.original, cancelled: 1 };
+      db.run(`INSERT INTO appointments (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        columns.map(column => cancelled[column]));
+    }
+  }, 'appointment-deleted')) return;
   closeModal('appointmentDetailsModal');
   renderSidebar();
   renderMain();
+  checkDueDateNotifications();
   toast('Appointment deleted');
 }
 
@@ -805,6 +868,8 @@ function validateAppointmentSnapshot(snapshot) {
     .filter(row => row[sections.columns.indexOf('type')] === 'appointment')
     .map(row => row[sections.columns.indexOf('id')]) : []);
   const ids = new Set();
+  const series = new Map(appointments.filter(row => row.recurrence).map(row => [row.id, row]));
+  const exceptions = new Set();
   for (const appointment of appointments) {
     if (!validId(appointment.id) || ids.has(appointment.id) || !sectionIds.has(appointment.section_id) ||
         (appointment.contact_id !== null && !contactIds.has(appointment.contact_id)) ||
@@ -816,6 +881,23 @@ function validateAppointmentSnapshot(snapshot) {
         !['plain', 'markdown'].includes(appointment.person_notes_format) || !isDescriptionDirection(appointment.person_notes_direction)) {
       throw new Error('Invalid appointment');
     }
+    if (typeof appointment.recurrence !== 'string' || typeof appointment.original_date !== 'string' ||
+        ![0, 1].includes(appointment.cancelled) || !APPOINTMENT_REMINDERS.includes(appointment.reminder_minutes)) {
+      throw new Error('Invalid appointment recurrence or reminder');
+    }
+    const rule = readAppointmentRecurrence(appointment.recurrence);
+    if (rule && (appointment.recurrence_parent !== null || rule.start !== appointment.date || appointment.cancelled)) {
+      throw new Error('Invalid appointment series');
+    }
+    if (appointment.recurrence_parent !== null) {
+      const parent = series.get(appointment.recurrence_parent);
+      const key = `${appointment.recurrence_parent}:${appointment.original_date}`;
+      if (!parent || !validAppointmentDate(appointment.original_date) || exceptions.has(key) ||
+          !recurrenceOrdinal(readAppointmentRecurrence(parent.recurrence), appointment.original_date)) {
+        throw new Error('Invalid appointment exception');
+      }
+      exceptions.add(key);
+    } else if (appointment.original_date || appointment.cancelled) throw new Error('Invalid appointment exception');
     ids.add(appointment.id);
   }
 }

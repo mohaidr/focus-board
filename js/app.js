@@ -543,7 +543,7 @@ function addToCalendar(event, id) {
   });
 }
 
-function downloadCalendarEvent({ id, title, description, start, end, location = '' }) {
+function downloadCalendarEvent({ id, title, description, start, end, location = '', reminderMinutes = 15 }) {
   const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const dtEnd = end.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
@@ -560,11 +560,13 @@ function downloadCalendarEvent({ id, title, description, start, end, location = 
     `SUMMARY:${icsEscape(title)}`,
     description ? `DESCRIPTION:${icsEscape(description)}` : '',
     location ? `LOCATION:${icsEscape(location)}` : '',
-    'BEGIN:VALARM',
-    'TRIGGER:-PT15M',
-    'ACTION:DISPLAY',
-    `DESCRIPTION:${icsEscape(title)} is due`,
-    'END:VALARM',
+    ...(reminderMinutes >= 0 ? [
+      'BEGIN:VALARM',
+      `TRIGGER:-PT${reminderMinutes}M`,
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${icsEscape(title)} is due`,
+      'END:VALARM',
+    ] : []),
     'END:VEVENT',
     'END:VCALENDAR',
   ].filter(Boolean).join('\r\n');
@@ -1241,7 +1243,7 @@ function renderSidebar() {
       (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 1),
       (SELECT COUNT(*) FROM items WHERE section_id = s.id AND status = 2),
       (SELECT COUNT(*) FROM items WHERE section_id = s.id),
-      (SELECT COUNT(*) FROM appointments WHERE section_id = s.id)
+      (SELECT COUNT(*) FROM appointments WHERE section_id = s.id AND recurrence_parent IS NULL AND cancelled = 0)
       FROM sections s`;
     const page = readListPage('sidebar-' + type, boardSql + ` WHERE COALESCE(s.type, 'task') = ? AND text_matches(s.name, ?)
       ORDER BY s.prioritized DESC, CASE WHEN s.prioritized = 1 THEN s.sort_order END ASC, s.created_at DESC, s.id DESC`,
@@ -4264,6 +4266,7 @@ function checkDueDateNotifications() {
       );
     }
   }
+  appendAppointmentReminders(container, now, dismissed);
 }
 
 function dismissReminder(id, dueDate) {

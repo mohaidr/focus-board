@@ -230,6 +230,17 @@ function createTables() {
   db.run('CREATE INDEX IF NOT EXISTS sections_type_order ON sections(type, prioritized DESC, sort_order, created_at DESC, id DESC)');
   db.run('CREATE INDEX IF NOT EXISTS contacts_name ON contacts(name COLLATE NOCASE, id)');
   db.run('CREATE INDEX IF NOT EXISTS appointments_board_day ON appointments(section_id, date, start_time, end_time, id)');
+  const appointmentColumns = db.exec('PRAGMA table_info(appointments)')[0].values.map(column => column[1]);
+  for (const [column, definition] of [
+    ['recurrence', "TEXT NOT NULL DEFAULT ''"],
+    ['recurrence_parent', 'INTEGER'],
+    ['original_date', "TEXT NOT NULL DEFAULT ''"],
+    ['cancelled', 'INTEGER NOT NULL DEFAULT 0 CHECK (cancelled IN (0, 1))'],
+    ['reminder_minutes', 'INTEGER NOT NULL DEFAULT 15 CHECK (reminder_minutes IN (-1, 0, 5, 15, 30, 60, 1440))'],
+  ]) {
+    if (!appointmentColumns.includes(column)) db.run(`ALTER TABLE appointments ADD COLUMN ${column} ${definition}`);
+  }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS appointment_exceptions ON appointments(recurrence_parent, original_date) WHERE recurrence_parent IS NOT NULL');
   for (const [table, fields] of [
     ['contacts', ['notes']],
     ['appointments', ['description', 'person_notes']],

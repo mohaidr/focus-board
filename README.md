@@ -126,7 +126,9 @@ appointments; contacts are shared across all appointment boards.
 - Open **Search appointments** to filter by person name, appointment title,
   From date, To date, or any combination. Date endpoints are inclusive; use the
   same From/To date for one day, or leave either endpoint empty for an open-ended
-  range. With no dates, search spans all dates rather than only the calendar day.
+  range. Non-recurring appointments search across all dates. Recurring occurrences
+  use the next 12 months without dates, a 12-month window starting at From or
+  ending at To when only one endpoint is supplied, or the full specified range.
   Search the current board by default or choose **All appointment boards**.
   Sort by date/time, person name, or title in either direction, then choose
   **Search**. Matching appointments load in ordered batches of 20 using
@@ -136,6 +138,25 @@ appointments; contacts are shared across all appointment boards.
 - Click an hour in the schedule or **+ Appointment**. Enter a title, date,
   start/end time, and person. Times use the device's local clock; appointments
   must end after they start on the same day.
+- Use **Repeat** for daily, weekly (choose weekdays), monthly, or yearly
+  appointments, with an interval such as every two weeks. End on an inclusive
+  date, after a number of occurrences, or never. Months without the selected day
+  and non-leap years for February 29 are skipped, not shifted. Times follow this
+  device's local clock. Weekly intervals use Sunday-based calendar weeks.
+- Editing or deleting a recurring appointment offers **This appointment only**,
+  **This and future appointments**, or **Entire series**. Rescheduling one occurrence
+  leaves the rest unchanged. Series edits replace exceptions in the affected part.
+  Calendar-day navigation supports future occurrences beyond the search window.
+  Series rules and exceptions are stored compactly and included in all backups
+  and JSON exports; older backups remain supported. Sidebar counts count series
+  and standalone appointments, not every future occurrence.
+- Choose a per-appointment **Reminder**: Off, at start, 5/15/30 minutes, one hour,
+  or one day beforehand (default: 15 minutes). Enable **Task and appointment
+  reminders** in Settings. Existing banners, sound, and permitted browser
+  notifications are reused; an enabled reminder also alerts at the start.
+  Dismissing an approaching alert does not dismiss the start alert or later
+  occurrences. Alerts remain available until the appointment ends, and require
+  Dashora to be open. Calendar download exports the selected occurrence.
 - Choose a saved contact, or enter a new person's name and optional phone,
   email, and contact notes. **Save contact for future appointments** is checked
   by default for new appointments. Uncheck it to keep the details only on that
@@ -162,6 +183,8 @@ appointments; contacts are shared across all appointment boards.
   This is a one-time export; later changes are not synced.
 - Overlaps warn across all appointment boards. You can cancel or save anyway.
   Adjacent appointments (one ending when another begins) do not conflict.
+  For a repeating series, overlap warnings check its next 12 months from the
+  selected start date (or until its earlier ending), including existing series.
 - Appointments and contacts are stored locally and included in JSON exports,
   imports, and folder backups. Deleting a board or appointment keeps shared
   contacts. Only empty boards can change to/from the Appointments type.

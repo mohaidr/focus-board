@@ -1,4 +1,4 @@
-const CACHE_VERSION = 64;
+const CACHE_VERSION = 65;
 const CACHE_NAME = `dashora-v${CACHE_VERSION}`;
 const ASSETS = [
   './',
@@ -12,6 +12,7 @@ const ASSETS = [
   './js/share.js',
   './js/dashboard.js',
   './js/appointments.js',
+  './js/appointment-recurrence.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',

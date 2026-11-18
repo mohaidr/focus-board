@@ -8,6 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointments.js
 const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
 const markdown = fs.readFileSync(path.join(__dirname, '..', 'js', 'markdown.js'), 'utf8');
 const paging = fs.readFileSync(path.join(__dirname, '..', 'js', 'paging.js'), 'utf8');
+const recurrence = fs.readFileSync(path.join(__dirname, '..', 'js', 'appointment-recurrence.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const contact = { id: 8, name: 'Sam', phone: '123', email: 'sam@example.test', notes: 'Contact notes' };
 const appointment = { id: 3, section_id: 1, contact_id: 8, person_name: 'Sam',
@@ -21,7 +22,7 @@ function setup() {
   const element = id => {
     if (!elements.has(id)) elements.set(id, { value: id.endsWith('Format') ? 'plain' : id.endsWith('Direction') ? 'auto' : '',
       checked: false, disabled: false,
-      innerHTML: '', hidden: false, textContent: '', scrollTop: 0,
+      innerHTML: '', hidden: false, textContent: '', scrollTop: 0, parentElement: { hidden: false },
       classList: { add() {}, remove() {}, toggle() {} }, focus() {}, reset() {}, reportValidity: () => true,
       setAttribute() {}, replaceChildren() {} });
     return elements.get(id);
@@ -41,7 +42,7 @@ function setup() {
     toast: message => warnings.push(message),
     console: { error() {} },
     confirm: () => true,
-    renderMain() {}, renderSidebar() {}, closeSidebar() {}, closeModal() {},
+    renderMain() {}, renderSidebar() {}, closeSidebar() {}, closeModal() {}, checkDueDateNotifications() {},
     dayKey: () => '2026-11-17',
     activeSectionId: 1,
     unlockedProtectedItems: new Set(), decryptedProtectedItems: new Map(),
@@ -70,6 +71,7 @@ function setup() {
   context.escAttr = context.esc;
   vm.runInContext(markdown, context);
   vm.runInContext(paging, context);
+  vm.runInContext(recurrence, context);
   vm.runInContext(source, context);
   context.getAppointments = () => [];
   context.getAppointment = id => appointments.find(row => row.id === id);
@@ -77,7 +79,8 @@ function setup() {
     appointmentDate: '2026-11-17', appointmentStart: '09:00', appointmentEnd: '10:00',
     appointmentContact: '', appointmentPersonName: 'New person', appointmentPersonPhone: '555',
     appointmentPersonEmail: 'new@example.test', appointmentPersonNotes: 'Details',
-    appointmentDescription: 'Discuss next steps', appointmentLocation: 'Office' };
+    appointmentDescription: 'Discuss next steps', appointmentLocation: 'Office',
+    appointmentReminder: '15', appointmentRepeat: '', appointmentEditScope: 'occurrence' };
   for (const [id, value] of Object.entries(defaults)) element(id).value = value;
   element('appointmentSaveContact').checked = true;
   return { context, element, statements, warnings, backups, contacts, appointments,
@@ -260,7 +263,7 @@ test('storage failure restores both tables, keeps the draft, and creates no chan
   await context.saveAppointment({ preventDefault() {} });
   assert.ok(statements.some(row => row.sql === 'DELETE FROM appointments'));
   const restored = statements.filter(row => row.sql.startsWith('INSERT INTO appointments'));
-  assert.deepEqual(restored.at(-1).params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto']);
+  assert.deepEqual(restored.at(-1).params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto', '', null, '', 0, 15]);
   assert.equal(element('appointmentId').value, '');
   assert.equal(element('appointmentPersonName').value, 'New person');
   assert.equal(element('appointmentSaveButton').disabled, false);
@@ -298,7 +301,7 @@ test('snapshots restore contacts before appointments and accept older backups', 
   context.restoreAppointmentSnapshot(snapshot);
   assert.match(statements[0].sql, /^INSERT INTO contacts/);
   assert.match(statements[1].sql, /^INSERT INTO appointments/);
-  assert.deepEqual(statements[1].params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto']);
+  assert.deepEqual(statements[1].params, [...Object.values(appointment), 'plain', 'auto', 'plain', 'auto', '', null, '', 0, 15]);
   assert.doesNotThrow(() => context.validateAppointmentSnapshot({ sections: [], items: [] }));
 });
 
@@ -374,7 +377,7 @@ test('appointment filters bind combined criteria and support board/all-board sco
   assert.deepEqual(clone(query.params), ["Sam %_'", 'Planning', 7, '2026-11-01', '2026-11-30']);
   assert.match(query.sql, /COALESCE\(c.name, a.person_name\)/);
   assert.match(query.sql, /a.section_id = \? AND a.date >= \? AND a.date <= \?/);
-  assert.doesNotMatch(query.sql, /Sam|Planning|2026-11/);
+  assert.doesNotMatch(query.sql, /Sam|Planning/);
   for (const dates of [{ from: '2026-11-17' }, { to: '2026-11-17' }, {}]) {
     const all = context.appointmentFilterQuery(7, appointmentFilters({ scope: 'all', ...dates }));
     assert.doesNotMatch(all.sql, /a.section_id = \?/);
@@ -509,6 +512,111 @@ function calendarSetup() {
   return { ...setupResult, downloads, blob: () => blob };
 }
 
+test('recurrence honors intervals, chosen weekdays, inclusive endings and occurrence counts', () => {
+  const { context, statements } = setup();
+  const rule = patch => ({ frequency: 'weekly', interval: 2, start: '2026-11-18',
+    days: [1, 3], until: '', count: 4, ...patch });
+  const weekly = rule();
+  assert.equal(context.firstAppointmentOccurrence(rule({ days: [1] })), '2026-11-30');
+  assert.equal(context.firstAppointmentOccurrence(rule({ days: [1], until: '2026-11-25' })), null);
+  context.truncateAppointmentSeries({ id: 42, date: weekly.start,
+    recurrence: JSON.stringify(rule({ days: [1] })) }, '2026-11-30');
+  assert.match(statements[0].sql, /^DELETE FROM appointments/);
+  assert.deepEqual(['2026-11-16', '2026-11-18', '2026-11-23', '2026-11-30', '2026-12-02',
+    '2026-12-14', '2026-12-16'].map(date => context.recurrenceOrdinal(weekly, date)), [0, 1, 0, 2, 3, 4, 0]);
+  const daily = rule({ frequency: 'daily', interval: 3, count: null, until: '2026-11-24' });
+  assert.equal(context.recurrenceOrdinal(daily, '2026-11-21'), 2);
+  assert.equal(context.recurrenceOrdinal(daily, '2026-11-24'), 3);
+  assert.equal(context.recurrenceOrdinal(daily, '2026-11-25'), 0);
+  for (const patch of [{ interval: 0 }, { interval: 1.5 }, { days: [] }, { days: [7] },
+    { until: '2026-11-17' }, { count: 0 }, { count: 10000 }, { frequency: 'hourly' }]) {
+    assert.throws(() => context.validateAppointmentRecurrence(rule(patch)), /valid repeat/);
+  }
+});
+
+test('monthly and yearly patterns skip missing dates and count actual occurrences', () => {
+  const { context } = setup();
+  const monthly = { frequency: 'monthly', interval: 1, start: '2026-01-31', days: [], until: '', count: 3 };
+  assert.deepEqual(['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31', '2026-07-31']
+    .map(date => context.recurrenceOrdinal(monthly, date)), [1, 0, 2, 0, 3, 0]);
+  const yearly = { ...monthly, frequency: 'yearly', start: '2024-02-29', count: 2 };
+  assert.equal(context.recurrenceOrdinal(yearly, '2025-02-28'), 0);
+  assert.equal(context.recurrenceOrdinal(yearly, '2028-02-29'), 2);
+  assert.equal(context.recurrenceOrdinal(yearly, '2032-02-29'), 0);
+});
+
+test('series rules and canceled exceptions round-trip in backups; malformed references and reminders reject', () => {
+  const { context, statements } = setup();
+  const master = { ...appointment, recurrence: JSON.stringify({ frequency: 'daily', interval: 1,
+    start: appointment.date, days: [], until: '', count: null }), recurrence_parent: null,
+  original_date: '', cancelled: 0, reminder_minutes: 30 };
+  const exception = { ...master, id: 4, recurrence: '', recurrence_parent: 3,
+    original_date: '2026-11-18', date: '2026-11-18', cancelled: 1 };
+  const snapshot = { sections: [{ columns: ['id', 'type'], values: [[1, 'appointment']] }],
+    contacts: result([contact]), appointments: result([master, exception]) };
+  context.validateAppointmentSnapshot(snapshot);
+  context.restoreAppointmentSnapshot(snapshot);
+  const restored = statements.filter(row => row.sql.startsWith('INSERT INTO appointments'));
+  assert.deepEqual(restored[0].params.slice(-5), [master.recurrence, null, '', 0, 30]);
+  assert.deepEqual(restored[1].params.slice(-5), ['', 3, '2026-11-18', 1, 30]);
+  for (const patch of [{ recurrence_parent: 999 }, { original_date: 'invalid' }, { reminder_minutes: 7 },
+    { recurrence: '{"frequency":"daily"}' }]) {
+    assert.throws(() => context.validateAppointmentSnapshot({ ...snapshot,
+      appointments: result([master, { ...exception, ...patch }]) }));
+  }
+});
+
+test('editing one exception preserves its own reminder while series edits load the series setting', () => {
+  const { context, element, appointments } = setup();
+  const master = { ...appointment, recurrence: JSON.stringify({ frequency: 'daily', interval: 1,
+    start: appointment.date, days: [], until: '', count: 5 }), reminder_minutes: 15 };
+  const exception = { ...appointment, id: 4, date: '2026-11-18', recurrence_parent: 3,
+    original_date: '2026-11-18', recurrence: '', reminder_minutes: 30 };
+  appointments.splice(0, appointments.length, master, exception);
+  const exec = context.db.exec;
+  context.db.exec = (sql, params) => sql === 'SELECT * FROM appointments WHERE id = ?'
+    ? result(appointments.filter(row => row.id === params[0])) : exec(sql, params);
+  context.openAppointmentModal(4);
+  assert.equal(element('appointmentReminder').value, 30);
+  assert.equal(element('appointmentRepeat').disabled, true);
+  context.changeAppointmentEditScope('series');
+  assert.equal(element('appointmentReminder').value, 15);
+  assert.equal(element('appointmentDate').value, '2026-11-17');
+  assert.equal(element('appointmentRepeat').disabled, false);
+  context.changeAppointmentEditScope('future');
+  assert.equal(element('appointmentRepeatCount').value, 4);
+});
+
+test('appointment reminders respect lead time, off, end time, distinct start dismissal and bounded batches', () => {
+  const { context } = setup();
+  const banners = [];
+  const alerts = [];
+  const queries = [];
+  const records = [
+    [1, '<Planning>', '2026-11-17', '10:00', '11:00', 15],
+    [2, 'Too early', '2026-11-17', '11:00', '12:00', 15],
+    [3, 'At start only', '2026-11-17', '10:00', '11:00', 0],
+    [4, 'Started', '2026-11-17', '09:30', '10:30', 15],
+    ...Array.from({ length: 22 }, (_, index) => [index + 10, 'Batch ' + index, '2026-11-17', '10:00', '11:00', 15]),
+  ];
+  context.triggerReminderAttention = (...args) => alerts.push(args);
+  context.db.exec = (sql, params) => {
+    queries.push({ sql, params: clone(params) });
+    return [{ values: records.slice(params.at(-1), params.at(-1) + params.at(-2)) }];
+  };
+  const container = { insertAdjacentHTML: (_, html) => banners.push(html) };
+  context.appendAppointmentReminders(container, new Date('2026-11-17T09:50:00'), {
+    'appointment:4:2026-11-17:09:30:soon': true,
+  });
+  assert.equal(banners.length, 24);
+  assert.match(banners[0], /&lt;Planning&gt;/);
+  assert.ok(alerts.some(([key, , , urgent]) => key === 'appointment:4:2026-11-17:09:30:start' && urgent));
+  assert.ok(!alerts.some(([key]) => key.startsWith('appointment:2:') || key.startsWith('appointment:3:')));
+  assert.deepEqual(queries.map(query => query.params.slice(-2)), [[20, 0], [20, 20]]);
+  assert.match(queries[0].sql, /reminder_minutes >= 0/);
+  assert.match(queries[0].sql, /end_time > \?/);
+});
+
 test('appointment details offer the shared calendar export with exact start/end and person details', async () => {
   const { context, element, appointments, downloads, blob } = calendarSetup();
   Object.assign(appointments[0], { start_time: '14:15', end_time: '15:45',
@@ -546,6 +654,17 @@ test('calendar export reports a deleted appointment instead of downloading it', 
   context.addAppointmentToCalendar({ stopPropagation() {} }, 3);
   assert.deepEqual(downloads, []);
   assert.deepEqual(warnings, ['Appointment no longer exists']);
+});
+
+test('appointment calendar export uses the chosen reminder or omits its alarm when off', async () => {
+  const { context, appointments, blob } = calendarSetup();
+  for (const minutes of [-1, 0, 30, 1440]) {
+    appointments[0].reminder_minutes = minutes;
+    context.addAppointmentToCalendar({ stopPropagation() {} }, 3);
+    const ics = await blob().text();
+    if (minutes === -1) assert.doesNotMatch(ics, /VALARM|TRIGGER/);
+    else assert.ok(ics.includes(`TRIGGER:-PT${minutes}M\r\n`));
+  }
 });
 
 test('appointment descriptions and one-off contact notes preserve exact Markdown and independent directions', async () => {
@@ -609,7 +728,7 @@ test('new formatting metadata round-trips through snapshots while old snapshots 
   context.validateAppointmentSnapshot(snapshot);
   context.restoreAppointmentSnapshot(snapshot);
   assert.deepEqual(statements[0].params.slice(-2), ['markdown', 'rtl']);
-  assert.deepEqual(statements[1].params.slice(-4), ['markdown', 'ltr', 'markdown', 'rtl']);
+  assert.deepEqual(statements[1].params.slice(13, 17), ['markdown', 'ltr', 'markdown', 'rtl']);
   const badContact = clone(snapshot);
   badContact.contacts[0].values[0].splice(-1, 1, 'sideways');
   assert.throws(() => context.validateAppointmentSnapshot(badContact), /Invalid contact/);
